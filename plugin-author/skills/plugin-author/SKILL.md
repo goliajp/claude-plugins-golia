@@ -328,4 +328,4 @@ claude plugin uninstall <plugin>
 
 ## Reference
 
-Conceptual rationale, design trade-offs, and history of these conventions: the sth library doc at `~/workspace/labs/lab5-sth/claude-code/plugin-authoring.md`.
+Conceptual rationale, design trade-offs, and history of these conventions live in the marketplace repo's gitignored `.claude/plugin-authoring.md` — only accessible to maintainers. For end users of this skill, the protocol above is self-contained.
