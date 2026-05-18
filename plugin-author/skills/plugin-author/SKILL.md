@@ -1,6 +1,6 @@
 ---
 name: plugin-author
-description: 'MANDATORY when the user wants to create a new Claude Code plugin, scaffold a new marketplace, or release a plugin version. Triggers on phrases like "create a plugin", "make a marketplace", "init plugin", "new plugin", "scaffold plugin", "做一个 plugin", "建一个 marketplace", or any plugin-authoring lifecycle question. Walks the full flow professionally — marketplace bootstrap (gh repo + git-flow with master as default branch), plugin scaffolding (plugin.json + skill + optional hook), state file portability, validate, install across profiles, smoke-test, and release (bump version, tag, ff master, push). Never let the user write boilerplate by hand if you can run the steps for them.'
+description: MANDATORY when the user wants to create, scaffold, or release a Claude Code plugin or marketplace. Walks the full lifecycle — marketplace bootstrap (gh repo + git-flow with master as default branch), plugin scaffolding (plugin.json + skill + optional hook), state file portability, validate, multi-profile install, smoke-test, and release (version bump, tag, ff master, push). Never let the user write boilerplate by hand if the protocol can run the steps.
 ---
 
 # plugin-author — Protocol
