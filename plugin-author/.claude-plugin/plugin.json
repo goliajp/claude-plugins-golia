@@ -1,0 +1,8 @@
+{
+  "name": "plugin-author",
+  "version": "0.1.0",
+  "description": "Walk users through creating a Claude Code plugin from scratch — marketplace bootstrap (gh repo + git-flow), plugin scaffolding, hook/skill design, portability, validate, install, and release.",
+  "author": {
+    "name": "goliajp"
+  }
+}
