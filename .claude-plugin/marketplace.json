@@ -1,0 +1,17 @@
+{
+  "name": "doracawl-private",
+  "description": "Private plugin marketplace for personal Claude Code workflows.",
+  "owner": {
+    "name": "doracawl"
+  },
+  "plugins": [
+    {
+      "name": "port-registry",
+      "description": "Soft, globally shared port allocator (DHCP-style) with implicit PreToolUse trigger for server-starting commands.",
+      "source": "./port-registry",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "tags": ["ports", "dev-server", "registry"]
+    }
+  ]
+}
