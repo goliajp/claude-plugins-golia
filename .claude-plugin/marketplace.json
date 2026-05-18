@@ -10,7 +10,7 @@
       "name": "port-registry",
       "description": "Soft, globally shared port allocator (DHCP-style) with implicit PreToolUse trigger for server-starting commands.",
       "source": "./port-registry",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "developer-tools",
       "tags": ["ports", "dev-server", "registry"]
     },
@@ -18,7 +18,7 @@
       "name": "plugin-author",
       "description": "Walk users through creating a Claude Code plugin from scratch — marketplace bootstrap, plugin scaffolding, hook/skill design, portability, validate, install, and release.",
       "source": "./plugin-author",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "developer-tools",
       "tags": ["meta", "plugin", "scaffold", "marketplace", "authoring"]
     }

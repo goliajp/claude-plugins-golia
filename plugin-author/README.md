@@ -18,6 +18,16 @@ claude plugin marketplace add https://github.com/goliajp/claude-plugins-golia
 claude plugin install plugin-author@golia
 ```
 
+### Development install (local checkout)
+
+To hack on this skill or test changes locally, point the marketplace at a clone instead of the GitHub URL — local-path installs hot-reload, so `SKILL.md` edits land on the next session without `claude plugin update`:
+
+```
+git clone https://github.com/goliajp/claude-plugins-golia.git
+claude plugin marketplace add ./claude-plugins-golia
+claude plugin install plugin-author@golia
+```
+
 ## Use
 
 Just say something like:
@@ -43,4 +53,5 @@ claude plugin uninstall plugin-author
 
 ## Changelog
 
+- **0.1.1** — trimmed SKILL description for lower always-on token cost; manifest polish (`homepage` / `repository` / `license` fields, author normalized to `GOLIA K.K.`); clarified that `.dev/plugin-authoring.md` is maintainer-only.
 - **0.1.0** — initial release. End-to-end plugin authoring protocol from scratch, including marketplace bootstrap, hook/skill design, portability, validate/install/test, and the git-flow release flow.
