@@ -1,0 +1,16 @@
+{
+  "description": "Port-registry PreToolUse hook — auto-injects a reminder when a Bash command looks like it starts a local server",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

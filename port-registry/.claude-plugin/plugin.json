@@ -1,0 +1,8 @@
+{
+  "name": "port-registry",
+  "version": "0.1.0",
+  "description": "Soft, globally shared port allocator (DHCP-style). Allocates / renews / reassigns ports for local services. PreToolUse hook auto-injects a reminder when you're about to run server-starting commands.",
+  "author": {
+    "name": "doracawl"
+  }
+}
