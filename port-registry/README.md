@@ -23,11 +23,11 @@ From any Claude Code session:
 ```
 # from a local marketplace checkout (dev / private use)
 claude plugin marketplace add ~/workspace/claude-plugins-golia
-claude plugin install port-registry@doracawl-private
+claude plugin install port-registry@goliajp-plugins
 
-# or once published to git:
-# claude plugin marketplace add https://github.com/<owner>/claude-plugins-golia
-# claude plugin install port-registry@<marketplace-name>
+# or after this marketplace is published to GitHub:
+# claude plugin marketplace add https://github.com/goliajp/claude-plugins-golia
+# claude plugin install port-registry@goliajp-plugins
 ```
 
 For multi-profile setups, install state is per-profile so you need to install in each one. The plugin cache is shared, so files only download once. One-liner sync:

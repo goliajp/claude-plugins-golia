@@ -1,8 +1,9 @@
 {
-  "name": "doracawl-private",
-  "description": "Private plugin marketplace for personal Claude Code workflows.",
+  "name": "goliajp-plugins",
+  "description": "Claude Code plugins published by goliajp.",
   "owner": {
-    "name": "doracawl"
+    "name": "goliajp",
+    "url": "https://github.com/goliajp"
   },
   "plugins": [
     {
