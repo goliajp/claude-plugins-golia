@@ -1,3 +1,13 @@
-# Claude Code project state and private authoring notes — local only, never published.
+# Local-only — never published to the public marketplace.
+
+# Claude Code project state (settings.local.json, runtime caches, etc.)
 .claude/
+
+# Repo-level context for Claude Code sessions working in this workdir.
 CLAUDE.md
+
+# Dev tooling: helpers for *making* plugins (authoring notes, scripts, templates).
+.dev/
+
+# Personal data for *using* plugins (state snapshots, sandbox fixtures, personal notes).
+.private/

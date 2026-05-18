@@ -328,4 +328,4 @@ claude plugin uninstall <plugin>
 
 ## Reference
 
-Conceptual rationale, design trade-offs, and history of these conventions live in the marketplace repo's gitignored `.claude/plugin-authoring.md` — only accessible to maintainers. For end users of this skill, the protocol above is self-contained.
+Conceptual rationale, design trade-offs, and history of these conventions live in the marketplace repo's gitignored `.dev/plugin-authoring.md` — only accessible to maintainers. For end users of this skill, the protocol above is self-contained.
