@@ -1,10 +1,7 @@
 # Local-only — never published to the public marketplace.
 
-# Claude Code project state (settings.local.json, runtime caches, etc.)
+# Claude Code project state — CLAUDE.md, settings.local.json, agents/commands, runtime caches, etc.
 .claude/
-
-# Repo-level context for Claude Code sessions working in this workdir.
-CLAUDE.md
 
 # Dev tooling: helpers for *making* plugins (authoring notes, scripts, templates).
 .dev/
