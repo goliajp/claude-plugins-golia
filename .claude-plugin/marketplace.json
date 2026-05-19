@@ -21,6 +21,22 @@
       "version": "0.1.1",
       "category": "developer-tools",
       "tags": ["meta", "plugin", "scaffold", "marketplace", "authoring"]
+    },
+    {
+      "name": "handoff",
+      "description": "Save / resume / clear a working handoff document for the current project so a new session can pick up where you stopped. /handoff save [note]; /handoff resume; /handoff clear.",
+      "source": "./handoff",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "tags": ["session", "context", "handoff", "resume", "workflow"]
+    },
+    {
+      "name": "pid-registry",
+      "description": "Per-project handle ledger for long-running processes. PreToolUse hook auto-fires when Bash is launched with run_in_background:true and reminds Claude to record a .pid handle at <project>/.claude/pid-registry/<name>.pid.",
+      "source": "./pid-registry",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "tags": ["pid", "process", "daemon", "registry", "long-running"]
     }
   ]
 }

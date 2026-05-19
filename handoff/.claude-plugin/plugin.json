@@ -1,0 +1,12 @@
+{
+  "name": "handoff",
+  "version": "0.1.0",
+  "description": "Save / resume / clear a working handoff document for the current project so a new session can pick up where you stopped. /handoff save [note] writes <project>/.claude/handoff.md; /handoff resume restates context; /handoff clear saves then prompts /clear + resume.",
+  "author": {
+    "name": "GOLIA K.K.",
+    "url": "https://github.com/goliajp"
+  },
+  "homepage": "https://github.com/goliajp/claude-plugins-golia",
+  "repository": "https://github.com/goliajp/claude-plugins-golia",
+  "license": "MIT"
+}

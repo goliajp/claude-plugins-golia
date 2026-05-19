@@ -1,0 +1,16 @@
+{
+  "description": "pid-registry PreToolUse hook — auto-injects a reminder when Bash is invoked with run_in_background:true (i.e. a long-running process is being spawned that should be registered)",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
