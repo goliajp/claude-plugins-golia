@@ -1,0 +1,12 @@
+{
+  "name": "pid-registry",
+  "version": "0.1.0",
+  "description": "Per-project handle ledger for long-running processes. When you start a daemon / dev-server / watcher / tunnel, write a .pid handle to <project>/.claude/pid-registry/<name>.pid so the same or future sessions can find and safely kill it. PreToolUse hook auto-reminds when Bash is launched with run_in_background:true.",
+  "author": {
+    "name": "GOLIA K.K.",
+    "url": "https://github.com/goliajp"
+  },
+  "homepage": "https://github.com/goliajp/claude-plugins-golia",
+  "repository": "https://github.com/goliajp/claude-plugins-golia",
+  "license": "MIT"
+}

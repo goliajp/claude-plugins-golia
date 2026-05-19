@@ -1,0 +1,61 @@
+# handoff
+
+Save and resume a dense **handoff document** for the current project — so a new session, another machine, or another day can pick up exactly where you stopped.
+
+Different from `claude --resume`: that one replays the whole prior conversation. `/handoff` writes a deliberate briefing for a *fresh-context* session — denser, structured, and meant to be paired with `/clear`.
+
+## What it does
+
+- **`/handoff save [note]`** — actively extracts Goal / Done / In progress / Blocked / Next / **Texture** (half-open conversational threads) / Rejected paths / Decisions / Environment from this session, writes `<project>/.claude/handoff.md` (single file, overwrite).
+- **`/handoff resume`** — finds the newest handoff (defends against cwd-drift saves), restates context in plain prose, **waits** for your confirmation before doing any work.
+- **`/handoff clear`** — runs save, then prints a minimal two-step instruction: `/clear`, then `/handoff resume`. (The harness cannot chain those itself; you type them.)
+
+## Why `Texture`
+
+The default skill output tends toward "what was done" — a closed-shape list. The **Texture** section deliberately preserves *unfinished* conversational threads: the user's exact words, the implicit assumptions, "what was about to be discussed", "interrupted by". This is what makes resume feel like a continuation rather than a fresh start. Easy to phone in; required by the protocol.
+
+## Install
+
+```
+claude plugin marketplace add https://github.com/goliajp/claude-plugins-golia
+claude plugin install handoff@golia
+```
+
+### Development install (local checkout)
+
+To hack on this skill or test changes locally — local-path installs hot-reload, so `SKILL.md` edits land on the next session without `claude plugin update`:
+
+```
+git clone https://github.com/goliajp/claude-plugins-golia.git
+claude plugin marketplace add ./claude-plugins-golia
+claude plugin install handoff@golia
+```
+
+## Update
+
+```
+claude plugin marketplace update golia
+claude plugin update handoff
+```
+
+## Uninstall
+
+```
+claude plugin uninstall handoff
+```
+
+The state file (`<project>/.claude/handoff.md`) is intentionally **not** removed on uninstall — remove by hand if you want a clean slate.
+
+## Where the file lives
+
+`<project-root>/.claude/handoff.md`. The protocol anchors on the session's `Primary working directory:`, not shell cwd, to defend against a real failure mode where a long-running session that worked in a subdirectory wrote the handoff into the subdir and then `resume` in a fresh session read the stale root copy.
+
+## Notes
+
+- The skill has `disable-model-invocation: true` — only you trigger it via `/handoff …`. Claude will not auto-invoke it.
+- No hooks. Pure slash-command driven.
+- No plugin-side data file. State lives in the project, not in the plugin directory — `claude plugin update` is safe.
+
+## Changelog
+
+- **0.1.0** — initial public release. Extracted from the in-house handoff skill.
