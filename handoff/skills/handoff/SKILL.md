@@ -1,7 +1,6 @@
 ---
 name: handoff
 description: Save / resume / clear a working handoff document for the current project — a dense briefing so a new session (or another machine, another day) can pick up where you stopped. `/handoff save [note]` writes `<project>/.claude/handoff.md`; `/handoff resume` reads it and restates context; `/handoff clear` saves then prompts the user to /clear + resume. Different from `claude --resume`, which replays full conversation history.
-disable-model-invocation: true
 argument-hint: save [note] | resume | clear
 ---
 
@@ -139,6 +138,26 @@ Tell the user explicitly with three points (don't restate the full document):
 
    Reason: a handoff is a snapshot. The repo may have moved (others committed, deps changed, files renamed). Calibrate before acting — same principle as "verify before trusting memory".
 
+## After resume — working rules
+
+These rules apply throughout the resumed session, not just during restate. They prevent the cold-start failure mode where Claude grabs whatever path is closest in its context (typically the skill's own base directory) and extrapolates user workspace structure from it.
+
+**Anti-path-extrapolation guard**: any project name or path word newly appearing in this resumed session — i.e. not explicitly listed inside the handoff.md you just read — MUST be verified with `ls` or `find` before use (passing to a subagent, opening, citing, telling the user it exists at X). Do NOT extrapolate from:
+
+- **The skill's own base directory** (`Base directory for this skill: ...` system prompt). That path is the **plugin installation location**, not the user's workspace root. Its parent directory is NOT "user workspace". Never use the skill's location as an anchor for guessing where the user's other projects live.
+- **Memory file paths** (`~/.claude-profile-N/projects/...`). Same reasoning — that's Claude Code internal state.
+- **Your general expectation** of "how workspaces are usually laid out". Different users organize differently; never assume.
+
+If the user mentions a project by name without giving its path, either ask, or run a verification command yourself:
+
+```bash
+find ~/workspace -maxdepth 4 -type d -name <project-name>
+```
+
+Use the result. If multiple matches, ask which one. If zero matches, tell the user the project isn't where you expected — don't proceed by guessing.
+
+**Why this rule exists**: a real past failure (sentori session, 2026-05-20). In a cold-start resume, the user mentioned "tasks 项目", Claude grabbed the handoff skill's base directory `.../claude-plugins-golia/handoff/skills/handoff` as anchor, extrapolated `claude-plugins-golia/tasks` as the project location, fed that to an Explore subagent, agent reported "not found", Claude relayed "no such project" to the user. Real path was in a completely different parent directory. One `find` would have caught it.
+
 ## clear
 
 `/handoff clear`'s goal is **smooth context switching**: save current progress → clear current session → read the handoff back in a clean context.
@@ -161,6 +180,26 @@ What `/handoff clear` actually does:
 3. **Do NOT accept `/handoff clear <note>`** — notes belong on `/handoff save <note>`. `clear` is the no-brainer switching path; no args.
 
 If the user doesn't actually type `/clear` next and instead asks something else, answer normally — don't nag.
+
+## When the model invokes
+
+`save` may be invoked by the model directly (this skill no longer carries the `disable-model-invocation` flag). Use this when you, the model, judge a **deliberate checkpoint moment** — typically one of:
+
+- Just finished a self-contained piece of work and about to enter a risky action (irreversible operation, multi-file refactor, etc.)
+- About to switch context (topic jump, task wrap-up, new investigation thread)
+- User signaled pause / break / "continue another time" semantics (e.g. "先暂停", "let's pick this up later")
+
+When you invoke save yourself, **follow the full `## save` protocol exactly** — actively-extract, Texture, Decisions, Rejected paths, Environment snapshot, all of it. The protocol's self-checks exist precisely because they're easy to skip in autopilot.
+
+**Do NOT** use `Write` or `Edit` to write `.claude/handoff.md` directly bypassing this skill. Bypass produces an inferior handoff that **looks** identical to a real one (same path, same title) but silently misses every actively-extract self-check. The right path is exactly one: run the `## save` flow.
+
+After a model-initiated save, **report to the user in one line**:
+
+> Saved a checkpoint at `<absolute path>` — reason: <one sentence on why now>.
+
+Single line, single reason. Lets the user notice it happened and overrule if your judgment was off (deliberate-moment threshold misjudged, ongoing topic not actually finished, etc.).
+
+`resume` and `clear` remain **user-driven verbs** — they change session state in ways only the user should trigger (resume restores context the user wants restored; clear coordinates a context wipe the user initiated). If you, the model, think "we should resume" or "we should clear and restart", **tell the user**, don't invoke yourself.
 
 ## Usage
 
