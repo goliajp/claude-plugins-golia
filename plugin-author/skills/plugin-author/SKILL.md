@@ -256,12 +256,12 @@ Smoke-test checklist:
 3. **Hook fires in fresh session** (if hook exists) — `<PLUGIN>_HOOK_LOG=/tmp/h.log claude -p '<prompt that triggers>'` should write a `MATCH` line to `/tmp/h.log`. (Note: `claude -p` mode triggers hooks but may not inject systemMessage into LLM reasoning; interactive sessions do.)
 4. **Skill description visible in fresh session** — `claude -p 'Quote the first 10 words of the <plugin> skill description.'` should quote frontmatter back.
 
-## Step 10: Release
+## Step 10a: First release (v0.1.0)
 
-When ready to publish:
+Used right after Step 9 succeeds — the plugin scaffolded in this session is at v0.1.0 and ready to publish for the first time.
 
 ```bash
-# (changes already committed on develop)
+# (scaffold changes already committed on develop)
 
 # 1. dry-run verify version sync between plugin.json and marketplace.json entry
 claude plugin tag ./<plugin-name> --dry-run
@@ -269,7 +269,7 @@ claude plugin tag ./<plugin-name> --dry-run
 # 2. real tag (creates <plugin>--v<version> annotated tag at HEAD)
 claude plugin tag ./<plugin-name>
 
-# 3. git-flow: ff master to develop (master = release line = default branch)
+# 3. git-flow: ff master to develop's HEAD (master = release line = default branch)
 git checkout master
 git merge develop --ff-only
 git push origin master
@@ -279,7 +279,131 @@ git checkout develop
 git push origin develop --tags
 ```
 
-For releases after v0.1.0: bump version in **both** `<plugin>/.claude-plugin/plugin.json` and the marketplace.json entry (they must match, `claude plugin tag` checks). Commit. Then repeat the flow.
+For releases after v0.1.0, follow **Step 10b** below — not this section.
+
+## Step 10b: Subsequent release (vX.Y.Z, X+Y+Z > 1)
+
+Use this when bumping an **already-released** plugin to a new version. The protocol below is what the model walks through end-to-end; if any step's check fails, **stop and surface the failure to the user**, do not silently proceed.
+
+### 1. Diff: what changed since the last tag
+
+```bash
+LATEST=$(git tag --list "<plugin-name>--v*" --sort=-v:refname | head -1)
+git log "$LATEST..HEAD" --oneline -- "<plugin-name>/"
+```
+
+Group commits into buckets — `feat:` / `fix:` / `refactor:` / `docs:` / `chore:` / **breaking**. Show the user a 3-5 line summary.
+
+### 2. Propose semver bump
+
+- **breaking** change present → **major**
+- any `feat:` commit, no breaking → **minor**
+- only `fix:` / `refactor:` / `docs:` / `chore:` → **patch**
+
+Suggest, let user confirm or override. Compute `NEXT_VERSION`.
+
+### 3. Pre-flight
+
+- `git rev-parse --abbrev-ref HEAD` must be `develop`
+- `git diff --quiet && git diff --cached --quiet` (clean tree — no WIP)
+
+### 4. Run tests via consumer-provided hook (optional)
+
+```bash
+if [ -x "<marketplace-root>/.claude-plugin/test.sh" ]; then
+  "<marketplace-root>/.claude-plugin/test.sh" "<plugin-name>"
+else
+  echo "no .claude-plugin/test.sh hook — skipping automated tests"
+fi
+```
+
+This is **plugin-author defining a convention**: any marketplace that wants automated test integration creates `.claude-plugin/test.sh <plugin>` themselves. plugin-author **does not** dictate how tests are run — the consumer marketplace owns that. If the hook is missing, warn and continue (do not block).
+
+If the hook fails (non-zero exit), **stop**. Surface the output to the user.
+
+### 5. Bump both version fields atomically
+
+Edit two files to the **same** new version:
+
+- `<plugin-name>/.claude-plugin/plugin.json` → `"version": "<NEXT_VERSION>"`
+- `.claude-plugin/marketplace.json` → the matching plugin entry's `"version"` field
+
+Then immediately verify:
+
+```bash
+jq -r .version "<plugin-name>/.claude-plugin/plugin.json"
+jq -r '.plugins[] | select(.name=="<plugin-name>") | .version' .claude-plugin/marketplace.json
+```
+
+Both must print `<NEXT_VERSION>`. If they don't match, fix and re-verify before continuing — this is the single most common release-day footgun.
+
+### 6. Append to README Changelog
+
+`<plugin-name>/README.md` should have a `## Changelog` section (per Step 11 template). Append one line:
+
+```
+- **<NEXT_VERSION>** — <one-line summary derived from the diff buckets in step 1>
+```
+
+If the README lacks a `## Changelog` section, add it before continuing (don't silently skip — the convention exists for a reason).
+
+### 7. Commit the bump
+
+```bash
+git add "<plugin-name>/.claude-plugin/plugin.json" .claude-plugin/marketplace.json "<plugin-name>/README.md"
+git commit -m "chore(<plugin-name>): release v<NEXT_VERSION>"
+```
+
+### 8. Tag and push (inlined release ceremony)
+
+Same as Step 10a, but for the new version:
+
+```bash
+# dry-run first — catches version mismatch before any tag is made
+claude plugin tag "./<plugin-name>" --dry-run
+
+# real tag
+claude plugin tag "./<plugin-name>"
+
+# git-flow: ff master to develop
+git checkout master
+git merge develop --ff-only
+git push origin master
+git checkout develop
+
+# push tags + develop
+git push origin develop --tags
+```
+
+### 9. Run post-release hook via consumer (optional)
+
+```bash
+if [ -x "<marketplace-root>/.claude-plugin/post-release.sh" ]; then
+  "<marketplace-root>/.claude-plugin/post-release.sh" "<plugin-name>" "<NEXT_VERSION>"
+fi
+```
+
+Same convention as the test hook: plugin-author defines the path; consumer marketplace decides what to put in it (e.g. multi-profile reinstall, smoke test, notification). If absent, skip silently — post-release is the consumer's domain.
+
+### 10. Report
+
+Tell the user, in one line:
+
+```
+✔ <plugin-name>@v<NEXT_VERSION> released. Tag: <plugin-name>--v<NEXT_VERSION>.
+  Master now at <short-sha>. Default branch ready for `claude plugin update`.
+```
+
+## Step 10 — Consumer hook conventions (reference)
+
+plugin-author exposes exactly **two** optional hook paths that a marketplace consumer (the marketplace owner — not the end user of an installed plugin) may provide:
+
+| Path | When invoked | Args | Required to exist? |
+|------|-------------|------|--------------------|
+| `<marketplace-root>/.claude-plugin/test.sh` | Step 10b §4 (before bump) | `<plugin-name>` | No — skip with warning if missing |
+| `<marketplace-root>/.claude-plugin/post-release.sh` | Step 10b §9 (after tag pushed) | `<plugin-name> <version>` | No — skip silently if missing |
+
+Both hooks are **invoked as standalone executables** — plugin-author does not source them, exec them, or inspect their internals. The consumer marketplace owns their content. plugin-author does **not** depend on, look inside, or assume anything about gitignored private paths like `.dev/`; the consumer can implement these hooks however they like (thin shell wrapper to private helpers, embedded logic, etc.).
 
 ## Step 11: README
 
