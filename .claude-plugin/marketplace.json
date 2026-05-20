@@ -18,7 +18,7 @@
       "name": "plugin-author",
       "description": "Walk users through creating a Claude Code plugin from scratch — marketplace bootstrap, plugin scaffolding, hook/skill design, portability, validate, install, and release.",
       "source": "./plugin-author",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "category": "developer-tools",
       "tags": ["meta", "plugin", "scaffold", "marketplace", "authoring"]
     },

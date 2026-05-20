@@ -53,5 +53,6 @@ claude plugin uninstall plugin-author
 
 ## Changelog
 
+- **0.2.0** — add Step 10b (subsequent-release flow: diff-since-last-tag → semver propose → atomic bump of both plugin.json and marketplace.json → Changelog append → inlined tag/ff-master/push ceremony); define two optional consumer-marketplace hook conventions at `.claude-plugin/test.sh` (run before bump) and `.claude-plugin/post-release.sh` (run after tag pushed).
 - **0.1.1** — trimmed SKILL description for lower always-on token cost; manifest polish (`homepage` / `repository` / `license` fields, author normalized to `GOLIA K.K.`); clarified that `.dev/plugin-authoring.md` is maintainer-only.
 - **0.1.0** — initial release. End-to-end plugin authoring protocol from scratch, including marketplace bootstrap, hook/skill design, portability, validate/install/test, and the git-flow release flow.
