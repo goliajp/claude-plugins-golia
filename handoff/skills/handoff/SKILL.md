@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: Save / resume / clear a working handoff document for the current project — a dense briefing so a new session (or another machine, another day) can pick up where you stopped. `/handoff save [note]` writes `<project>/.claude/handoff.md`; `/handoff resume` reads it and restates context; `/handoff clear` saves then prompts the user to /clear + resume. Different from `claude --resume`, which replays full conversation history.
-argument-hint: save [note] | resume | clear
+argument-hint: save [note] | resume | clear | eval [path]
 ---
 
 # handoff — Protocol
@@ -11,6 +11,7 @@ Read the first word of `$ARGUMENTS` and branch:
 - `save` (optional note follows) → run **save**
 - `resume` → run **resume**
 - `clear` → run **clear** (= save + prompt user to /clear + /handoff resume)
+- `eval` (optional path follows) → run **eval**
 - anything else (including empty) → print the **Usage** block at the bottom. Write nothing.
 
 ## Boundary: handoff vs memory
@@ -181,6 +182,29 @@ What `/handoff clear` actually does:
 
 If the user doesn't actually type `/clear` next and instead asks something else, answer normally — don't nag.
 
+## eval
+
+Read-only audit of an existing handoff.md. Exists to **protect save/resume quality** — not a feature in its own right. Two usage scenarios:
+
+- **After a save, before `/clear`** — confirm the snapshot captures enough. If gaps surface, supplement now while the original context is still alive.
+- **When a resume goes wrong** — localize fault: is the handoff itself shallow, or is `resume` mis-reading a faithful handoff?
+
+### Protocol
+
+1. Find handoff.md using the same logic as `## resume` step 1 (`find <project-root> -maxdepth 4 -type f -path "*/.claude/handoff.md"`). If the user passed an explicit path argument, use that instead. Multi-match → newest by mtime. Zero match → tell the user "no handoff to evaluate" and stop.
+
+2. Spawn a subagent via the Task tool with `subagent_type: general-purpose`. Pass the handoff.md **absolute path**. Use this prompt and **nothing else** — no this-session context, no extra hints, no leading framing:
+
+   > Read the file at `<absolute path>` as your only source. Write 3-5 sentences describing what was happening, what's pending, and what's still uncertain. Don't propose next steps. Don't say "shall we". Just describe what you'd think reading this cold.
+
+3. Present the subagent's output **verbatim**, prefixed by one line:
+
+   > Cold-read of `<absolute path>`:
+
+4. Stop. Do NOT add your own analysis. Do NOT ask "is this right?". The user reads, decides whether the handoff captured enough, and acts on that judgment themselves.
+
+**Writes nothing. Modifies nothing.** No changes to handoff.md, no changes to session state.
+
 ## When the model invokes
 
 `save` may be invoked by the model directly (this skill no longer carries the `disable-model-invocation` flag). Use this when you, the model, judge a **deliberate checkpoint moment** — typically one of:
@@ -207,4 +231,5 @@ Single line, single reason. Lets the user notice it happened and overrule if you
 /handoff save [note]   write handoff to <project>/.claude/handoff.md
 /handoff resume        read handoff + restate, wait for user before continuing
 /handoff clear         save + prompt "then /clear and /handoff resume" (harness doesn't auto-chain)
+/handoff eval [path]   read-only audit: cold-read a handoff via isolated subagent
 ```
