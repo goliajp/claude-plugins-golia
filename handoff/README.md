@@ -52,10 +52,12 @@ The state file (`<project>/.claude/handoff.md`) is intentionally **not** removed
 
 ## Notes
 
-- The skill has `disable-model-invocation: true` — only you trigger it via `/handoff …`. Claude will not auto-invoke it.
-- No hooks. Pure slash-command driven.
+- `save` can be invoked by you (via `/handoff save …`) **or** by Claude itself at a deliberate checkpoint moment (see SKILL.md `## When the model invokes`). When Claude does it, you'll see a one-line "Saved a checkpoint at … — reason: …" — overrule freely if the timing was off.
+- `resume` and `clear` remain user-driven — Claude won't trigger them on its own.
+- No hooks. Slash-command + optional model-initiated save.
 - No plugin-side data file. State lives in the project, not in the plugin directory — `claude plugin update` is safe.
 
 ## Changelog
 
+- **0.2.0** — model can now invoke `save` directly at deliberate checkpoint moments (removed `disable-model-invocation: true`); new `## After resume — working rules` section forbids path extrapolation from the skill's base directory (caused a real cold-start failure in a sentori session); new `## When the model invokes` section makes the criteria explicit and forbids `Write`/`Edit` bypass.
 - **0.1.0** — initial public release. Extracted from the in-house handoff skill.
