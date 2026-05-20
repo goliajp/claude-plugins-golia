@@ -60,5 +60,6 @@ The state file (`<project>/.claude/handoff.md`) is intentionally **not** removed
 
 ## Changelog
 
+- **0.3.0** — add `/handoff eval [path]`, a read-only audit verb that exists to protect save/resume quality. Spawns an isolated subagent that reads handoff.md with no other context and writes a brief cold-read for the user to compare against their actual mental model. Two usage scenarios: catch save gaps before `/clear`, or localize fault when a resume goes wrong. Writes nothing.
 - **0.2.0** — model can now invoke `save` directly at deliberate checkpoint moments (removed `disable-model-invocation: true`); new `## After resume — working rules` section forbids path extrapolation from the skill's base directory (caused a real cold-start failure in a sentori session); new `## When the model invokes` section makes the criteria explicit and forbids `Write`/`Edit` bypass.
 - **0.1.0** — initial public release. Extracted from the in-house handoff skill.
