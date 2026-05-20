@@ -54,6 +54,7 @@ The state file (`<project>/.claude/handoff.md`) is intentionally **not** removed
 
 - `save` can be invoked by you (via `/handoff save …`) **or** by Claude itself at a deliberate checkpoint moment (see SKILL.md `## When the model invokes`). When Claude does it, you'll see a one-line "Saved a checkpoint at … — reason: …" — overrule freely if the timing was off.
 - `resume` and `clear` remain user-driven — Claude won't trigger them on its own.
+- `eval` is a read-only quality check — runs an isolated subagent that reads your handoff.md cold (no other context). Use it before `/clear` to catch save gaps, or to debug a confused resume. Writes nothing.
 - No hooks. Slash-command + optional model-initiated save.
 - No plugin-side data file. State lives in the project, not in the plugin directory — `claude plugin update` is safe.
 
