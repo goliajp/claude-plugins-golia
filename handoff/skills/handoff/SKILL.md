@@ -14,6 +14,14 @@ Read the first word of `$ARGUMENTS` and branch:
 - `eval` (optional path follows) → run **eval**
 - anything else (including empty) → print the **Usage** block at the bottom. Write nothing.
 
+## Design principle: 交 > 接 (handoff > summary)
+
+A handoff's core verb is **交** (hand over) — not **总结** (summarize). "交" means: hand the next step, in concrete form, to a fresh session. "总结" means: review what got done, what was decided, what was produced — necessary, but never the headline.
+
+The reader of `/handoff resume` wants to know **where to go next**, not what happened in the past. Every writing rule in this skill is engineered so the handed-over document is as high-fidelity as it would be if no session-switch happened at all.
+
+**Failure mode this protocol prevents**: save degenerates into a quality-poor summary — abstract verbs ("refactor X"), invented umbrella terms not present in the original conversation, third-person narration ("the user wants…", "we were trying…"). Once such a summary is written, **the hallucinations are baked in** — resume reads a corrupted contract and amplifies it. The fix lives on the save side, not the resume side: write Handoff content under the strict rules below.
+
 ## Boundary: handoff vs memory
 
 Handoff captures **transient state** of an unfinished task — overwritten or deleted when the task is done. Memory captures **enduring facts / preferences** that survive across conversations. Do not smuggle ephemeral task state into memory just because you happen to be writing a handoff.
@@ -42,7 +50,18 @@ The goal: resume reads like one frame of a paused movie with the picture intact 
 
 If `<project-root>/.claude/` doesn't exist, `mkdir -p <project-root>/.claude` (absolute path, no shell-cwd dependency).
 
-### 2. Extract material (gather BEFORE writing)
+### 2. Decide Mode A vs Mode B (the very first writing decision)
+
+Before extracting anything, decide which mode this save is in. The whole `## Handoff` section's shape depends on this.
+
+- **Mode A — path defined**: the next step is known. There is a concrete tasklist / edit / command sequence the new session should execute. The pickup contract is: *new session reads, restates, and waits for the user's go-ahead.*
+- **Mode B — path open**: the next step is **not yet decided**. Multiple candidate directions, design trade-offs unresolved, waiting on a user decision. The pickup contract is: *new session reads, then talks with the user about the choice — does not pick a path on its own.*
+
+No ambiguity allowed. "Mostly clear with one open question" is **Mode A** with the open question flagged in-line. **Mode B is reserved for "the main line is undecided"** — the whole thing cannot just be executed.
+
+Why this is forced: the failure mode is "Handoff section that's vague enough to be either, so the new session guesses". Pinning Mode A or B at save time forces concreteness on the save side and gives the resume side a clean two-branch pickup contract.
+
+### 3. Extract material (gather BEFORE writing)
 
 a. **Code layer** — only when `<project-root>` is a git repo (`git -C <project-root> rev-parse --is-inside-work-tree`), gather in parallel (always with `-C <project-root>`):
    - `git -C <project-root> rev-parse --abbrev-ref HEAD`
@@ -52,22 +71,23 @@ a. **Code layer** — only when `<project-root>` is a git repo (`git -C <project
 
    If the actual work happened in a nested sub-repo (e.g. `<project>/<subproject>/`), gather git info from the sub-repo and note the subpath in metadata. The handoff.md still lives at the outer project root.
 
-b. **Task layer** — if the session used TaskList / TodoWrite, copy in-progress and pending items verbatim into "In progress" / "Next" — least effort, highest fidelity.
+b. **Task layer** — if the session used TaskList / TodoWrite, copy in-progress and pending items verbatim into the `## Handoff` step list (Mode A) or `## Status` (Mode B) — least effort, highest fidelity.
 
 c. **Conversation layer** (most critical — **never skip**) — review this session's context and ask yourself:
-   - What did the user originally want? (→ "Goal")
-   - What files were changed, what commands run, what tools used? (→ "Done")
-   - What were the **last one or two turns** doing? Any unfinished edits, unrun tests, half-finished searches? (→ "In progress")
-   - What are you blocked on — an error, waiting for a user decision, an external dependency? What did the user **last say**? (→ "Blocked" + most direct source for "Next")
+   - What did the user originally want? **Find their exact phrasing.** (→ "Goal", use quotes)
+   - **What is the immediate next move?** What was the last concrete instruction or implicit next step? What did the user **last say** about "what to do next"? (→ "Handoff", Mode A or B)
+   - What files were changed, what commands run, what tools used? (→ "Status / Done")
+   - What were the **last one or two turns** doing? Any unfinished edits, unrun tests, half-finished searches? (→ "Status / In progress")
+   - What are you blocked on — an error, waiting for a user decision, an external dependency? (→ "Status / Blocked")
    - What approaches did you **try and reject**, and why? Even one entry beats zero (→ "Rejected paths")
    - What design/selection decisions did you make, what alternatives were weighed? (→ "Decisions")
    - **Are there half-finished topics the user raised but didn't close?** What were the **exact words**? What's the implicit assumption? How does this connect to prior context? What was about to be discussed? What cut it off? (→ "Texture" — **the cure for recall gaps**, easiest to phone in, NEVER skip)
 
    Ground each extraction in concrete artifacts: file:line, command, error message verbatim. Don't write "tweaked the logic" — that's compressed past usefulness.
 
-### 3. Write the file
+### 4. Write the file
 
-**Final self-check before Write** (defends against cwd drift):
+**Heading-level self-check before Write** (defends against cwd drift):
 
 1. `file_path` starts with `/` (absolute path)
 2. `file_path` equals exactly `<value of 'Primary working directory:'>` + `/.claude/handoff.md`, character-for-character
@@ -79,9 +99,9 @@ Use Write to create `<project-root>/.claude/handoff.md` (absolute path) with thi
 
    - `# Handoff — <one-line goal>` (single H1 at the top; use the user's `save` note if provided; otherwise synthesize one from the extracted goal — don't write "untitled")
    - One blockquote-style metadata line: `saved: <ISO timestamp> · root: <project-root absolute path> · work-dir: <subdir actually worked in, or same as root> · branch: <branch or N/A> · last: <commit hash + msg, or N/A>`
-   - `## Goal` — one paragraph including the done-criteria (how do you know it's done)
-   - `## Status` — three bold sub-sections: **Done** / **In progress** / **Blocked**. Each item carries evidence: file:line, command, output snippet
-   - `## Next` — **one** immediately-executable concrete action (file:line to edit, command to run, question to investigate). The more specific the better
+   - `## Goal` — one paragraph stating the done-criteria. **Include a verbatim quote of how the user originally framed the task**, in `"..."`, if you have it. Don't replace the user's framing with your own paraphrase.
+   - **`## Handoff`** — *the headline section, immediately after Goal.* Mode A or Mode B format (see "## Handoff section formats" below). This is **what the new session reads first** — it carries the entire "交" payload.
+   - `## Status` — three bold sub-sections: **Done** / **In progress** / **Blocked**. Each item carries evidence: file:line, command, output snippet. This is supporting material for the Handoff, not a substitute.
    - `## Texture` — (**this section cures recall gaps; opposite style from the others**) capture the **unfinished conversational fabric**: half-finished topics, ideas still cooking, directions still under consideration. Allow it to be **messy, first-person, verbatim-faithful** — this is not for conclusions, it's for "what was the thread of thought and where did it stop". Each entry:
      - **User's exact words** (in `"..."` quotes; if a multi-turn exchange, paste the relevant lines in order — don't paraphrase)
      - **Connects to**: which prior thread / earlier session this picks up; what's the subtext
@@ -91,21 +111,92 @@ Use Write to create `<project-root>/.claude/handoff.md` (absolute path) with thi
      Boundary: **rejected** directions go to "Rejected paths" (closed); **still-considering** directions go here (half-open). If the session has zero half-open topics (all closed technical work), write one line "no half-open topics: session was all closed tasks" and skip — but don't skip out of laziness.
    - `## Rejected paths` — failed approaches + why they failed. Easiest to omit, highest value: forgetting failures costs more than forgetting successes.
    - `## Decisions` — what was chosen, what was rejected, why. Lets the new session not re-litigate settled direction.
-   - `## Environment snapshot` — git info from step 2a, in a code block.
+   - `## Environment snapshot` — git info from step 3a, in a code block.
 
-### 4. Tell the user
+### 5. `## Handoff` section formats
+
+Two formats. Pick one based on the Mode you decided in step 2. Don't mix.
+
+#### Mode A — path defined
+
+First line, literally: `**Mode A — path defined.**` followed by **one short sentence** naming the next move.
+
+Then a numbered step list, **strict rules**:
+
+```
+1. Edit foo.rs:123 — replace `bar(a)` with `baz(a, ctx)` so that callers thread the context.
+   Verify: `cargo test foo::bar_calls_baz` passes.
+2. Run `cargo build --workspace`. Confirm no new warnings beyond the existing `unused_imports` in bar.rs:45.
+3. Commit with message: "refactor(foo): thread ctx through bar→baz".
+```
+
+Strict rules for every step:
+
+- **Imperative form. Verb first.** `Edit …`, `Run …`, `Add …`, `Remove …`, `Investigate …`, `Confirm with user …`, `Open …`. Forbidden: `"the user wants …"`, `"we were trying to …"`, `"the next thing is to …"`, `"the goal is to …"` — these are narrative-style summary, not a handoff instruction.
+- **Concrete artifacts.** Every step names a file:line, a shell command, or a precise question. Forbidden abstract verbs: `"refactor X"`, `"clean up Y"`, `"improve Z"`, `"finish the work on …"` — too vague to execute cold.
+- **No new terms.** Use the exact names (files, variables, concepts) that appeared in this session. **Do not invent** umbrella terms or paraphrased labels. If you feel a noun needs to be summarized, go find what the user / code called it and copy that verbatim. (This is the single biggest source of "handoff hallucination": save-time concept-reification.)
+- **Verify line.** Each step that mutates state ends with a `Verify: <command>` or `Verify: <observable>` so the executor knows when the step is done.
+
+End the Mode A section with one line, literally:
+
+`Pickup signal: Restate complete, then stand by — execute step 1 only after the user gives the go-ahead.`
+
+#### Mode B — path open
+
+First line, literally: `**Mode B — path open.**` followed by **one short sentence** naming the open question.
+
+Then the decision material — four required sub-blocks:
+
+```
+### Open question
+> <user's exact words framing the open question, in a blockquote — verbatim, no paraphrase>
+
+### Candidates
+- Option 1: <name>. <one-line description>. Known constraint: <…>.
+- Option 2: <name>. <one-line description>. Known constraint: <…>.
+- Option 3: …
+
+### What we know
+- <constraint / confirmed fact / user's stated preference — quote when possible>
+
+### What we don't know
+- <the specific point that needs a user decision>
+- <another open point>
+```
+
+Strict rules:
+
+- **Verbatim user quotes** in "Open question" and "What we know" wherever possible. Same anti-invention rule as Mode A.
+- **Candidates must be ones that were actually surfaced in this session.** Don't manufacture candidate options to "look balanced" — if only one was discussed, list one and say so.
+- **No leading recommendation.** Save-time does not pick the path for Mode B; that's exactly what resume is supposed to hand back to the user.
+
+End the Mode B section with one line, literally:
+
+`Pickup signal: Discuss the open question with the user first — do not pick a path or start work autonomously.`
+
+### 6. Post-write self-check (run on the `## Handoff` section)
+
+After writing, re-read the `## Handoff` section and pass three checks. If any fails, revise and re-Write.
+
+1. **Cold-read test** — could a session with zero prior context act on this directly? If a step says "refactor X", "clean up Y", "improve Z" — fail. Rewrite into a specific file:line / command / question.
+2. **New-term test** — does any noun appear here that did **not** appear in this session's actual conversation? If yes, it's concept-reification — go find the original wording and replace.
+3. **Imperative test** — does every Mode A step start with a verb? Did any sentence slip into `"the user wants …"` / `"we plan to …"` / `"the goal is …"` narration? If yes, rewrite as imperative.
+
+### 7. Tell the user
 
 Tell the user explicitly with three points (don't restate the full document):
 
-   - **Written to** `<absolute path>`
-   - One sentence on the key next step
+   - **Written to** `<absolute path>` — **Mode A** *(or **Mode B**)*
+   - One sentence naming the next move (Mode A) **or** the open question (Mode B)
    - **Run `/handoff resume` in a new session to continue**
 
-   The point: the user should see "saved + how to pick back up" at a glance and feel safe switching sessions.
+   The point: the user should see "saved + which mode + how to pick back up" at a glance and feel safe switching sessions. The Mode label also lets them sanity-check the categorization — if you wrote Mode A but they think it's really Mode B (or vice versa), they can override now while context is still hot.
 
    Note: if arriving here via `clear` (not direct `/handoff save`), follow the `clear` section's format instead — don't duplicate this.
 
 ## resume
+
+The resume verb's job is to **deliver the "交"**, not to summarize the past. Show the user the Handoff section as written, then add only the minimum surrounding context. Never paraphrase the Handoff section — paraphrasing is precisely where save-time hallucinations get amplified.
 
 1. **Always `find` first** — don't assume the project-root copy is the newest. Save may have drifted to a subdir, making the root copy stale (see the failure case at top):
 
@@ -117,27 +208,27 @@ Tell the user explicitly with three points (don't restate the full document):
 
    - **Zero matches** → say "no handoff in this project — want to `/handoff save` now?", stop
    - **One match** → read it
-   - **Multiple matches** → read the newest by mtime, **mention in the restatement**: "I found another handoff at `<other path>` (mtime X); I'm using the newest at `<chosen path>`. Let me know if the older one should be cleaned up — this usually means a previous save drifted out of project root."
+   - **Multiple matches** → read the newest by mtime, **mention in the freshness line below**: "found another handoff at `<other path>` (mtime X); using the newest at `<chosen path>`. Let me know if the older one should be cleaned up."
 
-   If the chosen handoff's `saved` timestamp is more than 7 days old, flag prominently: "this handoff is N days old — may be stale."
+2. **Print the `## Handoff` section verbatim.** Extract the lines from `## Handoff` up to (but not including) the next `##` heading, and reproduce them **character-for-character** in your reply — including the `**Mode A — path defined.**` / `**Mode B — path open.**` opener, every numbered step / sub-block, and the `Pickup signal:` line. Do **not** paraphrase. Do **not** "improve" the wording. Do **not** drop steps you think are obvious. Do **not** add commentary inside it.
 
-2. **Restate in your own words** (do NOT paste file content verbatim). Cover only the **current picture**:
-   - Where we left off (one sentence with concrete texture, not a laundry list)
-   - Any landmines to avoid (if any)
-   - Freshness (timestamp)
+   Why verbatim: the Handoff section was written under save-time anti-summary rules. Re-paraphrasing it here would re-introduce exactly the hallucination class save was trying to prevent (invented terms, narrative drift, lost specificity).
 
-   Tone: "we were doing X, progress is at Y" — not "the handoff document records …". Should read like direct pickup, not a report-out.
+3. **One short freshness-and-terrain block** after the verbatim print. In your own words, two or three lines max, covering only:
+   - `saved <N days/hours> ago` (from metadata). If >7 days, **flag prominently**: "⚠ N days old — may be stale."
+   - Branch / repo state if it diverges from the handoff's metadata (e.g. handoff said `branch: feature/foo`, current branch is `develop` → mention it).
+   - If multiple handoffs were found, the "other handoff at …" line from step 1.
 
-   **Do NOT paraphrase / preview / summarize the "Next" or "Decisions" sections, and do NOT propose "shall we do X now."** Reason: resume's job is to restore context into the user's head, not to make the call about what comes next. The user says what to do.
+   **Do NOT** add a "summary of where we were", **do NOT** restate Status / Texture / Decisions, **do NOT** "shall we do step 1 now?" — the verbatim Handoff already carries the contract.
 
-3. End the restatement with two explicit signals:
+4. **Pickup signal — branch on Mode**:
 
-   - A clear waiting marker so the user knows it's their turn: e.g. "**I'll wait for your call before doing anything** — not going to start automatically."
-   - An open question (e.g. "Does that match? Where do you want to start?") — **don't list options for the user**.
+   - If the section was **Mode A**: tell the user you're standing by to execute step 1 and waiting for their go-ahead. Then stop.
+   - If the section was **Mode B**: tell the user you need to talk through the open question first before any work starts. Then stop. **Do not propose which candidate to pick.**
 
-   **Stop and wait for the user.** Do NOT proceed into actual work on the assumption that the handoff is still accurate.
+   Phrase these in whatever language the user has been using in this session — the contract is "stand by for go-ahead" (Mode A) or "discuss before acting" (Mode B); the exact wording is the model's call.
 
-   Reason: a handoff is a snapshot. The repo may have moved (others committed, deps changed, files renamed). Calibrate before acting — same principle as "verify before trusting memory".
+5. **Stop and wait for the user.** Do NOT proceed into actual work on the assumption that the handoff is still accurate. A handoff is a snapshot; the repo may have moved (others committed, deps changed, files renamed). Calibrate before acting — same principle as "verify before trusting memory".
 
 ## After resume — working rules
 
