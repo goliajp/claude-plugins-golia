@@ -1,18 +1,41 @@
 ---
 name: handoff
-description: Save / resume / clear a working handoff document for the current project — a dense briefing so a new session (or another machine, another day) can pick up where you stopped. `/handoff save [note]` writes `<project>/.claude/handoff.md`; `/handoff resume` reads it and restates context; `/handoff clear` saves then prompts the user to /clear + resume. Different from `claude --resume`, which replays full conversation history.
+description: MANDATORY for any handoff request — slash (`/handoff save|resume|clear|eval`) OR a natural-language equivalent in any language ("handoff save", "做个 handoff", "save 一下进度", "先暂停记一下回来再继续", "switch session", "let's pause and come back later"). Manages `<project>/.claude/handoff.md`, a structured cross-session briefing for picking up cold in a fresh session. NEVER write or edit handoff.md directly with Write/Edit; the active-extract + Mode A/B contract is what makes the doc faithful, and bypassing this skill silently drops every quality check.
 argument-hint: save [note] | resume | clear | eval [path]
 ---
 
 # handoff — Protocol
 
-Read the first word of `$ARGUMENTS` and branch:
+## When to invoke this skill (read first)
+
+This skill owns **every** read/write of `<project>/.claude/handoff.md`. There are three trigger paths and they all route here:
+
+1. **Slash command** — `/handoff save|resume|clear|eval [args]`. The Claude Code harness invokes the skill directly.
+2. **User natural language** — the user mentions handoff / save-session / pause-resume semantics, in any language, with or without the word "handoff" itself. Examples that MUST route here (non-exhaustive — recognize the intent, not just these strings):
+   - English: `"save handoff"`, `"handoff save"`, `"save a handoff"`, `"do a handoff"`, `"let's pause and pick this up later"`, `"switch session"`, `"checkpoint this"`, `"write up where we left off so I can resume"`
+   - Chinese: `"做个 handoff"`, `"save 一下"`, `"先 handoff save 一下"`, `"先 save 一下进度"`, `"先暂停记一下回来再继续"`, `"切个 session"`, `"换 session 继续"`, `"记一下交班"`
+   - Any sentence whose intent is "freeze the current session's working state so a fresh session can pick up" is a trigger, regardless of whether the literal word "handoff" appears.
+3. **Model-initiated checkpoint** — see `## When the model invokes` below for the criteria.
+
+### NEVER bypass with Write/Edit
+
+When you recognize any of the triggers above, **you must run the `## save` / `## resume` / `## clear` / `## eval` protocol in this file.** Do **not**:
+
+- Use `Write` or `Edit` to create `.claude/handoff.md` directly.
+- Improvise your own format ("I'll just write a quick summary…").
+- Skip the Mode A/B decision because "the user just said save 一下".
+
+Why: bypass produces a file that **looks** identical to a real handoff (same path, same `# Handoff` title) but silently misses every active-extract self-check, the Mode A/B contract, and the verbatim-quote rule. The next session's `resume` then trusts that corrupted contract and the hallucinations get amplified. The faithful save is the only save worth having — and the only path to a faithful save is this skill's protocol.
+
+Once you've routed here, dispatch on the first argument:
 
 - `save` (optional note follows) → run **save**
 - `resume` → run **resume**
 - `clear` → run **clear** (= save + prompt user to /clear + /handoff resume)
 - `eval` (optional path follows) → run **eval**
-- anything else (including empty) → print the **Usage** block at the bottom. Write nothing.
+- empty or unrecognized → print the **Usage** block at the bottom. Write nothing.
+
+For a natural-language trigger that doesn't map cleanly to a verb (e.g. just "做个 handoff"), default to **save**.
 
 ## Design principle: 交 > 接 (handoff > summary)
 
@@ -304,9 +327,7 @@ Read-only audit of an existing handoff.md. Exists to **protect save/resume quali
 - About to switch context (topic jump, task wrap-up, new investigation thread)
 - User signaled pause / break / "continue another time" semantics (e.g. "先暂停", "let's pick this up later")
 
-When you invoke save yourself, **follow the full `## save` protocol exactly** — actively-extract, Texture, Decisions, Rejected paths, Environment snapshot, all of it. The protocol's self-checks exist precisely because they're easy to skip in autopilot.
-
-**Do NOT** use `Write` or `Edit` to write `.claude/handoff.md` directly bypassing this skill. Bypass produces an inferior handoff that **looks** identical to a real one (same path, same title) but silently misses every actively-extract self-check. The right path is exactly one: run the `## save` flow.
+When you invoke save yourself, **follow the full `## save` protocol exactly** — actively-extract, Texture, Decisions, Rejected paths, Environment snapshot, all of it. The protocol's self-checks exist precisely because they're easy to skip in autopilot. (The "NEVER bypass with Write/Edit" rule at the top of this file applies equally to model-initiated saves — never write `.claude/handoff.md` directly.)
 
 After a model-initiated save, **report to the user in one line**:
 
