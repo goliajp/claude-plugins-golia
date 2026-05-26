@@ -59,6 +59,66 @@ Always write/read `<project-root>/.claude/handoff.md` with an absolute path. **N
 
 Single exception: if the user's `save` note explicitly directs another path (e.g. "save to ./foo/.claude/", "store at mars"), follow the user's directive.
 
+## Language consistency
+
+All natural-language content written into `<project-root>/.claude/handoff.md` — title, section headings, body prose, Mode label, Pickup signal, sub-block titles ("Open question", "Candidates", "What we know" …), prefix words ("Option N", "Known constraint", "Verify:") — uses **the language the user has been using in this session**.
+
+Judgement signals, in priority order:
+
+1. **CLAUDE.md or global instruction** directs a language explicitly (e.g. `永远用中文跟我对话`, `respond in Japanese`)
+2. **The user's recent turns** in this session — what language did they actually type
+3. Fall back to English only if both signals are absent
+
+The hardcoded English in the templates below — `## Goal`, `## Handoff`, `## Status`, `**Mode A — path defined.**`, `**Mode B — path open.**`, `### Open question`, `### Candidates`, `### What we know`, `### What we don't know`, `Option N`, `Known constraint`, `Verify:`, `Pickup signal:`, `Done` / `In progress` / `Blocked`, etc. — is **schema, not literal**. The *structure* (which fields appear, in what order, what they mean) is preserved exactly. The *wording* is rendered in the session language.
+
+What does **NOT** translate (stays as-is regardless of session language):
+
+- Metadata **field names**: `saved:`, `root:`, `work-dir:`, `branch:`, `last:`, `mode:`
+- Metadata **field values** that aren't natural language: ISO timestamps, absolute paths, branch names, commit hashes + commit subjects (commit subjects keep their original wording)
+- Code identifiers, filenames, shell commands, error messages, function signatures, commit message templates — they appear verbatim inside the prose
+
+### The `mode:` field — language-agnostic anchor
+
+The metadata line **must** carry a typed `mode: A` or `mode: B` field. This is the language-agnostic anchor that lets the resume side determine the mode without grepping the (translated) Mode label text. Resume reads `mode:` from metadata; it does NOT pattern-match against `**Mode A — path defined.**` literal text.
+
+### Example: Chinese session
+
+If the user has been communicating in Chinese, the handoff.md should render like this (note: structure preserved, English template tokens translated, code identifiers and metadata field names unchanged):
+
+```
+# Handoff — 重构 foo 模块以贯穿 ctx 参数
+
+> saved: 2026-05-27T04:30:29+09:00 · root: /Users/x/project · work-dir: /Users/x/project · branch: develop · last: 1ca2144 chore: release v0.4.2 · mode: A
+
+## 目标
+用户原话「把 ctx 参数贯穿到 baz 函数」。done-criteria：所有 caller 都已 thread ctx。
+
+## Handoff
+**模式 A — 路径已定。** 下一步在 foo.rs:123 把 `bar(a)` 改成 `baz(a, ctx)`。
+
+1. 编辑 foo.rs:123 — 把 `bar(a)` 替换为 `baz(a, ctx)`，让 caller 传 ctx。
+   验证：`cargo test foo::bar_calls_baz` 通过。
+2. 跑 `cargo build --workspace`。确认没有除 bar.rs:45 现有 `unused_imports` 之外的新 warning。
+3. Commit 信息：`refactor(foo): thread ctx through bar→baz`。
+
+继续指示：复述完后待命 — 等用户拍板再执行第 1 步。
+
+## 状态
+**已完成**
+- foo.rs:50-80 已重构 …
+**进行中**
+- bar.rs:45 unused_imports 待清 …
+**阻塞**
+- 无
+
+## 纹理 (half-open topics)
+- 用户半途提了一句「baz 是不是该改名 process」—— 未深入，**guess:** 倾向不改名（破坏 grep）
+```
+
+### Example: English session
+
+If the session was conducted in English, the handoff.md follows the templates in `### 5. ## Handoff section formats` below as literal English — `**Mode A — path defined.**`, `### Open question`, `Pickup signal:`, `Option 1: …`, etc., all rendered exactly as written there.
+
 ## save
 
 Write the **current unfinished task**'s transient state to `<project-root>/.claude/handoff.md` (single file, overwrite). The reader is "someone opening a new session to continue from here" — write so they can pick up cold, without leaning on this conversation's implicit context.
@@ -130,7 +190,7 @@ If shell cwd has drifted into a subdir (look back at Bash history for `cd <subdi
 Use Write to create `<project-root>/.claude/handoff.md` (absolute path) with this heading structure (note heading levels — the title MUST be `#` H1, all sections are `##` H2; do not downgrade the title to H2 just because the body has many H2 sections):
 
    - `# Handoff — <one-line goal>` (single H1 at the top; use the user's `save` note if provided; otherwise synthesize one from the extracted goal — don't write "untitled")
-   - One blockquote-style metadata line: `saved: <ISO timestamp> · root: <project-root absolute path> · work-dir: <subdir actually worked in, or same as root> · branch: <branch or N/A> · last: <commit hash + msg, or N/A>`
+   - One blockquote-style metadata line: `saved: <ISO timestamp> · root: <project-root absolute path> · work-dir: <subdir actually worked in, or same as root> · branch: <branch or N/A> · last: <commit hash + msg, or N/A> · mode: <A or B>` — the `mode:` value is the literal letter `A` or `B` (typed, language-agnostic — resume reads this to determine mode without grepping translated Mode label text)
    - `## Goal` — one paragraph stating the done-criteria. **Include a verbatim quote of how the user originally framed the task**, in `"..."`, if you have it. Don't replace the user's framing with your own paraphrase.
    - **`## Handoff`** — *the headline section, immediately after Goal.* Mode A or Mode B format (see "## Handoff section formats" below). This is **what the new session reads first** — it carries the entire "交" payload.
    - `## Status` — three bold sub-sections: **Done** / **In progress** / **Blocked**. Each item carries evidence: file:line, command, output snippet. This is supporting material for the Handoff, not a substitute.
@@ -151,7 +211,7 @@ Two formats. Pick one based on the Mode you decided in step 2. Don't mix.
 
 #### Mode A — path defined
 
-First line, literally: `**Mode A — path defined.**` followed by **one short sentence** naming the next move.
+First line: open with the bold Mode A label, followed by **one short sentence** naming the next move. Schema (English): `**Mode A — path defined.**`. In a Chinese session, render the label as `**模式 A — 路径已定。**` (or equivalent in whatever session language applies). The label is schema — the structural prefix `**` and the letter `A` are fixed; the surrounding prose translates. See `## Language consistency` above.
 
 Then a numbered step list, **strict rules**:
 
@@ -169,15 +229,13 @@ Strict rules for every step:
 - **No new terms.** Use the exact names (files, variables, concepts) that appeared in this session. **Do not invent** umbrella terms or paraphrased labels. If you feel a noun needs to be summarized, go find what the user / code called it and copy that verbatim. (This is the single biggest source of "handoff hallucination": save-time concept-reification.)
 - **Verify line.** Each step that mutates state ends with a `Verify: <command>` or `Verify: <observable>` so the executor knows when the step is done.
 
-End the Mode A section with one line, literally:
-
-`Pickup signal: Restate complete, then stand by — execute step 1 only after the user gives the go-ahead.`
+End the Mode A section with one Pickup signal line. Schema (English): `Pickup signal: Restate complete, then stand by — execute step 1 only after the user gives the go-ahead.`. In a Chinese session, render as `继续指示：复述完后待命 — 等用户拍板再执行第 1 步。`. The prefix word (`Pickup signal:` / `继续指示：`) and the sentence translate together per session language.
 
 #### Mode B — path open
 
-First line, literally: `**Mode B — path open.**` followed by **one short sentence** naming the open question.
+First line: open with the bold Mode B label, followed by **one short sentence** naming the open question. Schema (English): `**Mode B — path open.**`. In a Chinese session: `**模式 B — 路径未定。**`. Same rule as Mode A — the letter `B` and `**` markup are fixed; prose translates.
 
-Then the decision material — four required sub-blocks:
+Then the decision material — four required sub-blocks. The sub-block H3 headings, prefix words (`Option N`, `Known constraint:`) and prose translate per session language; the structure (4 blocks, this order) stays fixed.
 
 ```
 ### Open question
@@ -196,15 +254,15 @@ Then the decision material — four required sub-blocks:
 - <another open point>
 ```
 
+In a Chinese session the same structure renders as `### 开放问题` / `### 候选` / `### 已知` / `### 未知`, with `选项 N` / `已知约束：` prefixes — same fields, translated wording.
+
 Strict rules:
 
 - **Verbatim user quotes** in "Open question" and "What we know" wherever possible. Same anti-invention rule as Mode A.
 - **Candidates must be ones that were actually surfaced in this session.** Don't manufacture candidate options to "look balanced" — if only one was discussed, list one and say so.
 - **No leading recommendation.** Save-time does not pick the path for Mode B; that's exactly what resume is supposed to hand back to the user.
 
-End the Mode B section with one line, literally:
-
-`Pickup signal: Discuss the open question with the user first — do not pick a path or start work autonomously.`
+End the Mode B section with one Pickup signal line. Schema (English): `Pickup signal: Discuss the open question with the user first — do not pick a path or start work autonomously.`. In a Chinese session: `继续指示：先跟用户讨论开放问题 — 不要自己挑路径或开干。`.
 
 ### 6. Post-write self-check (run on the `## Handoff` section)
 
@@ -242,9 +300,11 @@ The resume verb's job is to **deliver the "交"**, not to summarize the past. Sh
    - **One match** → read it
    - **Multiple matches** → read the newest by mtime, **mention in the freshness line below**: "found another handoff at `<other path>` (mtime X); using the newest at `<chosen path>`. Let me know if the older one should be cleaned up."
 
-2. **Print the `## Handoff` section verbatim.** Extract the lines from `## Handoff` up to (but not including) the next `##` heading, and reproduce them **character-for-character** in your reply — including the `**Mode A — path defined.**` / `**Mode B — path open.**` opener, every numbered step / sub-block, and the `Pickup signal:` line. Do **not** paraphrase. Do **not** "improve" the wording. Do **not** drop steps you think are obvious. Do **not** add commentary inside it.
+2. **Print the `## Handoff` section verbatim.** Extract the lines from `## Handoff` up to (but not including) the next `##` heading, and reproduce them **character-for-character** in your reply — including the bold Mode label opener (whatever language it's written in — `**Mode A — path defined.**`, `**模式 A — 路径已定。**`, or another translation), every numbered step / sub-block, and the Pickup signal line. Do **not** paraphrase. Do **not** translate. Do **not** "improve" the wording. Do **not** drop steps you think are obvious. Do **not** add commentary inside it. If the handoff was written in a language different from your current session, still print verbatim — let the user re-read in the original language.
 
    Why verbatim: the Handoff section was written under save-time anti-summary rules. Re-paraphrasing it here would re-introduce exactly the hallucination class save was trying to prevent (invented terms, narrative drift, lost specificity).
+
+   To determine the **mode** for step 4 below, **read the `mode:` field from the metadata line** (typed `A` or `B`). Do NOT pattern-match against the Mode label text — that text may be translated and locale-dependent. The `mode:` metadata value is the language-agnostic anchor.
 
 3. **One short freshness-and-terrain block** after the verbatim print. In your own words, two or three lines max.
 
@@ -263,12 +323,12 @@ The resume verb's job is to **deliver the "交"**, not to summarize the past. Sh
 
    **Do NOT** add a "summary of where we were", **do NOT** restate Status / Texture / Decisions, **do NOT** "shall we do step 1 now?" — the verbatim Handoff already carries the contract.
 
-4. **Pickup signal — branch on Mode**:
+4. **Pickup signal — branch on Mode** (determined from the metadata `mode:` field read in step 2):
 
-   - If the section was **Mode A**: tell the user you're standing by to execute step 1 and waiting for their go-ahead. Then stop.
-   - If the section was **Mode B**: tell the user you need to talk through the open question first before any work starts. Then stop. **Do not propose which candidate to pick.**
+   - If `mode: A`: tell the user you're standing by to execute step 1 and waiting for their go-ahead. Then stop.
+   - If `mode: B`: tell the user you need to talk through the open question first before any work starts. Then stop. **Do not propose which candidate to pick.**
 
-   Phrase these in whatever language the user has been using in this session — the contract is "stand by for go-ahead" (Mode A) or "discuss before acting" (Mode B); the exact wording is the model's call.
+   Phrase these in whatever language the user has been using in this session (the resumed session, not necessarily the original save's language) — the contract is "stand by for go-ahead" (`mode: A`) or "discuss before acting" (`mode: B`); the exact wording is the model's call.
 
 5. **Stop and wait for the user.** Do NOT proceed into actual work on the assumption that the handoff is still accurate. A handoff is a snapshot; the repo may have moved (others committed, deps changed, files renamed). Calibrate before acting — same principle as "verify before trusting memory".
 
