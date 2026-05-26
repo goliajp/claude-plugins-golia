@@ -86,6 +86,15 @@ Why this is forced: the failure mode is "Handoff section that's vague enough to 
 
 ### 3. Extract material (gather BEFORE writing)
 
+a₀. **System clock (always, first)** — run `date -Iseconds` (and capture stdout). Use that string verbatim as the `saved:` field in the metadata line. **Do NOT** infer the timestamp from:
+
+   - the `currentDate` line in the system context (only day-resolution, often hours stale)
+   - the "Today's date is …" / "It is currently …" appearance in any system message
+   - your guess at how long this session has been running
+   - the timestamp of the last bash output
+
+   Reason: the resume side computes "saved X minutes/hours ago" by diffing the metadata `saved:` against a fresh `date -Iseconds` call. If save's timestamp was guessed (typically rounded to the nearest hour or day), resume's delta becomes meaningless — the user has no idea if the handoff is 7 minutes old or 7 hours old. Run the command. It costs one Bash call and removes the entire guessing failure mode.
+
 a. **Code layer** — only when `<project-root>` is a git repo (`git -C <project-root> rev-parse --is-inside-work-tree`), gather in parallel (always with `-C <project-root>`):
    - `git -C <project-root> rev-parse --abbrev-ref HEAD`
    - `git -C <project-root> log -1 --pretty=format:"%h %s"`
@@ -237,8 +246,18 @@ The resume verb's job is to **deliver the "交"**, not to summarize the past. Sh
 
    Why verbatim: the Handoff section was written under save-time anti-summary rules. Re-paraphrasing it here would re-introduce exactly the hallucination class save was trying to prevent (invented terms, narrative drift, lost specificity).
 
-3. **One short freshness-and-terrain block** after the verbatim print. In your own words, two or three lines max, covering only:
-   - `saved <N days/hours> ago` (from metadata). If >7 days, **flag prominently**: "⚠ N days old — may be stale."
+3. **One short freshness-and-terrain block** after the verbatim print. In your own words, two or three lines max.
+
+   Before writing it, **run `date -Iseconds`** to get the current system time, and compute the elapsed delta `now − metadata.saved`. Report the delta at the finest natural resolution:
+
+   - `< 1 hour` → `saved N minutes ago` (e.g. "saved 7 minutes ago")
+   - `< 1 day` → `saved N hours ago` (e.g. "saved 3 hours ago")
+   - `≥ 1 day` → `saved N days ago` (e.g. "saved 4 days ago")
+   - `> 7 days` → **flag prominently**: `⚠ saved N days ago — may be stale`
+
+   **Never guess** the delta ("a few hours ago", "earlier today"). The whole point of forcing `date` on both ends is that the user can know with one glance whether the save was 7 minutes or 7 hours ago — concretely. Vague phrases re-introduce the failure mode the timestamp protocol is designed to remove.
+
+   Other content for this block (still in your own words, all optional):
    - Branch / repo state if it diverges from the handoff's metadata (e.g. handoff said `branch: feature/foo`, current branch is `develop` → mention it).
    - If multiple handoffs were found, the "other handoff at …" line from step 1.
 
