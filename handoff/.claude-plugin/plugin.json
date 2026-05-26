@@ -1,6 +1,6 @@
 {
   "name": "handoff",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Save / resume / clear a working handoff document for the current project so a new session can pick up where you stopped. /handoff save [note] writes <project>/.claude/handoff.md; /handoff resume restates context; /handoff clear saves then prompts /clear + resume.",
   "author": {
     "name": "GOLIA K.K.",

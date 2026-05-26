@@ -26,7 +26,7 @@
       "name": "handoff",
       "description": "Save / resume / clear a working handoff document for the current project so a new session can pick up where you stopped. /handoff save [note]; /handoff resume; /handoff clear.",
       "source": "./handoff",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "category": "developer-tools",
       "tags": ["session", "context", "handoff", "resume", "workflow"]
     },
