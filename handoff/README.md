@@ -19,8 +19,7 @@ To switch sessions: `/handoff save`, then `/clear`, then `/handoff resume` in th
 
 ## Changelog
 
-- **unreleased** — pointer redesign. `save`'s main job becomes *landing the plan* in the project's planning area (probes `.claude/rfcs|tasks|plans|specs`, defers to project `CLAUDE.md` for choice + structure — no methodology hard-coded, per the marketplace's plugin-boundary rule); handoff.md shrinks to a thin pointer (`## Plan` path + `## Next`). resume follows the pointer into the plan file. Degrades to inline next-steps when a project keeps no plan files.
-- **0.5.0 (prior local rework)** — lightweight save/resume: cut model-invoke / Mode A·B / eval / Texture; `disable-model-invocation`; resume ends the turn cleanly instead of "stand by and wait" (fixes the Opus 4.8 echo-probing).
+- **0.5.0** — lightweight pointer redesign. `save`'s main job becomes *landing the plan* in a `.claude/` plan file (built-in defaults: `.claude/rfcs/<slug>/plan.md` for multi-step, `.claude/tasks/<date>/<slug>.md` for one-offs; `CLAUDE.md` override optional — works out of the box); handoff.md shrinks to a thin pointer (`## Plan` path + `## Next`), resume follows it into the plan file. Cut Mode A·B / eval / clear / Texture / model-invoke; set `disable-model-invocation`; resume now ends the turn cleanly instead of "stand by and wait" (fixes the Opus 4.8 echo-probing). SKILL.md 426 → 118 lines.
 - **0.4.3** — write handoff.md in the user's session language.
 - **0.4.2** — resume reads `mode:` from metadata instead of grepping translated label text.
 - **0.4.0** — Mode A / Mode B split; Texture section.
