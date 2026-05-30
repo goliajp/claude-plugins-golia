@@ -1,7 +1,7 @@
 {
   "name": "handoff",
-  "version": "0.4.3",
-  "description": "Save / resume / clear a working handoff document for the current project so a new session can pick up where you stopped. /handoff save [note] writes <project>/.claude/handoff.md; /handoff resume restates context; /handoff clear saves then prompts /clear + resume.",
+  "version": "0.5.0",
+  "description": "Lightweight save / resume handoff for the current project. /handoff save lands the unfinished work's plan in a .claude/ plan file and writes a thin <project>/.claude/handoff.md pointer; /handoff resume follows the pointer to where the work is and how to pick up. Works out of the box.",
   "author": {
     "name": "GOLIA K.K.",
     "url": "https://github.com/goliajp"

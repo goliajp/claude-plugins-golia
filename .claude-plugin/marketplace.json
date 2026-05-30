@@ -24,9 +24,9 @@
     },
     {
       "name": "handoff",
-      "description": "Save / resume / clear a working handoff document for the current project so a new session can pick up where you stopped. /handoff save [note]; /handoff resume; /handoff clear.",
+      "description": "Lightweight save / resume handoff. /handoff save lands the unfinished work's plan in a .claude/ plan file and writes a thin <project>/.claude/handoff.md pointer; /handoff resume follows the pointer to where the work is and how to pick up. Works out of the box.",
       "source": "./handoff",
-      "version": "0.4.3",
+      "version": "0.5.0",
       "category": "developer-tools",
       "tags": ["session", "context", "handoff", "resume", "workflow"]
     },
