@@ -243,7 +243,7 @@ Both must pass before installing. Common failures:
 For our multi-profile setup:
 
 ```bash
-for p in 1 2 3; do
+for p in 1 2 3 4; do
   CLAUDE_CONFIG_DIR=~/.claude-profile-$p claude plugin marketplace add <marketplace-root>
   CLAUDE_CONFIG_DIR=~/.claude-profile-$p claude plugin install <plugin>@<marketplace-name>
 done
