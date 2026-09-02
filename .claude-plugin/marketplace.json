@@ -12,7 +12,11 @@
       "source": "./port-registry",
       "version": "0.1.1",
       "category": "developer-tools",
-      "tags": ["ports", "dev-server", "registry"]
+      "tags": [
+        "ports",
+        "dev-server",
+        "registry"
+      ]
     },
     {
       "name": "plugin-author",
@@ -20,7 +24,13 @@
       "source": "./plugin-author",
       "version": "0.2.0",
       "category": "developer-tools",
-      "tags": ["meta", "plugin", "scaffold", "marketplace", "authoring"]
+      "tags": [
+        "meta",
+        "plugin",
+        "scaffold",
+        "marketplace",
+        "authoring"
+      ]
     },
     {
       "name": "handoff",
@@ -28,7 +38,13 @@
       "source": "./handoff",
       "version": "0.5.0",
       "category": "developer-tools",
-      "tags": ["session", "context", "handoff", "resume", "workflow"]
+      "tags": [
+        "session",
+        "context",
+        "handoff",
+        "resume",
+        "workflow"
+      ]
     },
     {
       "name": "pid-registry",
@@ -36,7 +52,27 @@
       "source": "./pid-registry",
       "version": "0.1.0",
       "category": "developer-tools",
-      "tags": ["pid", "process", "daemon", "registry", "long-running"]
+      "tags": [
+        "pid",
+        "process",
+        "daemon",
+        "registry",
+        "long-running"
+      ]
+    },
+    {
+      "name": "claude-profiles",
+      "description": "Add, remove and audit multiple Claude Code accounts on one machine. Creates the CLAUDE_CONFIG_DIR profile with the right symlink set, derives the keychain service name, wires the shell alias, and ships a doctor that checks the invariants a broken profile silently violates.",
+      "source": "./claude-profiles",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "tags": [
+        "claude-code",
+        "profiles",
+        "accounts",
+        "multi-account",
+        "keychain"
+      ]
     }
   ]
 }
