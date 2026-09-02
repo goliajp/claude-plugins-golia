@@ -61,6 +61,20 @@
       ]
     },
     {
+      "name": "devops",
+      "description": "Reach the goliajp devops control plane safely from any project — a skill for when/how to use the devops CLI and the infra red lines, plus a PreToolUse hook that steers hand-crafted API mutations back to the safe primitive.",
+      "source": "./devops",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "tags": [
+        "devops",
+        "infrastructure",
+        "guardrails",
+        "dns",
+        "caddy"
+      ]
+    },
+    {
       "name": "claude-profiles",
       "description": "Add, remove and audit multiple Claude Code accounts on one machine. Creates the CLAUDE_CONFIG_DIR profile with the right symlink set, derives the keychain service name, wires the shell alias, and ships a doctor that checks the invariants a broken profile silently violates.",
       "source": "./claude-profiles",
