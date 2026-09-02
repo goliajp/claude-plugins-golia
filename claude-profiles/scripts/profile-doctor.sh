@@ -86,12 +86,20 @@ LINK_LIST
     fi
   fi
 
-  # 5. a shell alias pointing at it
+  # 5. a `claudeN` command an interactive shell can actually resolve.
+  #    Asked of the shell rather than grepped out of a dotfile: an rc that
+  #    derives its aliases in a loop contains no per-profile literal to grep
+  #    for, and a literal that is present can still be shadowed or unreachable.
   num=$(printf '%s' "$n" | sed 's/.*-//')
-  if grep -qs "claude-profile-$num" "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then
-    note ok "shell alias present"
+  resolved=""
+  for sh in zsh bash; do
+    command -v "$sh" >/dev/null 2>&1 || continue
+    if "$sh" -ic "type claude$num" >/dev/null 2>&1; then resolved="$sh"; break; fi
+  done
+  if [ -n "$resolved" ]; then
+    note ok "claude$num resolves in $resolved"
   else
-    note FAIL "no shell alias references $n"
+    note FAIL "no claude$num command — an unreachable profile is one nobody uses"
   fi
 done <<PROFILE_LIST
 $PROFILES
