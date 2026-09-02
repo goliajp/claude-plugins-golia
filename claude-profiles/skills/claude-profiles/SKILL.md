@@ -15,31 +15,58 @@ Several Claude Code accounts on one machine, each with its own
                                       history.jsonl  ← NOT shared, one per profile
 ```
 
+## The alias is derived, not maintained
+
+`claudeN` is not written per profile. One block in the shell rc loops over the
+profile directories that exist and defines an alias for each:
+
+```zsh
+for _cc_dir in "$HOME"/.claude-profile-*(N); do
+  alias "claude${_cc_dir##*-}=CLAUDE_CONFIG_DIR='$_cc_dir' claude"
+done
+```
+
+So **creating the directory is creating the alias** (from the next shell), and
+removing the directory removes it. There is no rc edit in either direction and
+no way for the two to drift apart.
+
+`scripts/ensure-alias-block.sh` installs it — idempotent, keyed on a sentinel
+comment, backs the rc up, and strips any hand-written `alias claudeN=` lines it
+replaces. `new-profile.sh` calls it for you. The zsh `(N)` qualifier matters:
+without it a machine with no profiles errors on every shell start.
+
 ## Add a profile
 
 ```bash
-scripts/new-profile.sh 5          # mirrors the symlink set from the newest profile
+scripts/new-profile.sh 5     # symlink set mirrored + alias block ensured
 ```
 
-Then, in order:
+Then:
 
-1. **Alias** — append next to the existing ones so they stay together:
-   `alias claude5='CLAUDE_CONFIG_DIR=~/.claude-profile-5 claude'`
-   Aliases are read at shell start; the current shell needs `source ~/.zshrc`.
-2. **Log in** — `claude5`, then `/login`. This is interactive and cannot be
-   scripted.
+1. **Open a new shell** (or `source` the rc) so `claude5` resolves.
+2. **Log in** — `claude5`, then `/login`. Interactive; cannot be scripted.
 3. **Verify** — `scripts/profile-doctor.sh` must end in `all clear`.
+
+`new-profile.sh` aborts rather than leaving a half-built profile if it mirrors
+zero symlinks — which it once did, silently, by prefixing a path that `find`
+had already printed in full. The doctor is what caught it.
 
 ## Remove a profile
 
-1. Log out from inside that profile, or delete its keychain entry:
-   `security delete-generic-password -s "Claude Code-credentials-<hash>"`
-   (get the hash from the doctor's output — see below).
-2. Remove the alias line.
-3. `rm -rf ~/.claude-profile-N` — safe *only* because every shared thing in it
-   is a symlink. Confirm with `find ~/.claude-profile-N -maxdepth 1 ! -type l`
-   first: whatever that lists is real per-profile data that is about to go,
-   `history.jsonl` included, which is the account's session history.
+```bash
+scripts/remove-profile.sh 5        # prints what dies, asks, then does it
+```
+
+It lists the symlinks (shared, untouched elsewhere) separately from the real
+per-profile data that goes with the directory — `history.jsonl` included, which
+is that account's session history and the only record of which sessions were
+its. It deletes the keychain entry under the derived service name, removes the
+directory, and says nothing more about the alias because the alias was a
+function of the directory.
+
+If the rc still has hand-written aliases, the script says so and points at
+`ensure-alias-block.sh` instead of silently leaving a `claude5` that launches
+nothing.
 
 ## The four things that fail silently
 
@@ -64,8 +91,11 @@ printf '%s' "$HOME/.claude-profile-5" | shasum -a 256 | cut -c1-8
 or `plugins` link points at a moved shared root simply behaves as if those do
 not exist. Nothing errors.
 
-**A profile with no alias is a profile nobody uses.** It keeps working, keeps
-holding a login, and stays invisible. The doctor reports it.
+**A profile with no reachable `claudeN` is a profile nobody uses.** It keeps
+working, keeps holding a login, and stays invisible. The doctor asks a real
+interactive shell whether `claudeN` resolves rather than grepping the rc for a
+literal — a derived block contains no per-profile literal to find, and a
+literal that is present can still be shadowed.
 
 ## When another repo keeps its own copy of the roster
 

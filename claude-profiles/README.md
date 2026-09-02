@@ -25,8 +25,15 @@ done
 
 ```bash
 scripts/new-profile.sh 5        # create ~/.claude-profile-5 from the newest profile
+scripts/remove-profile.sh 5     # show what dies, then remove profile + credentials
 scripts/profile-doctor.sh       # audit every profile; exits non-zero on a problem
+scripts/ensure-alias-block.sh   # install the derived claudeN aliases (idempotent)
 ```
+
+**`claudeN` is derived, not maintained.** One loop in the shell rc defines an
+alias for each profile directory that exists, so creating a profile creates its
+alias and removing one removes it — no rc edit either way, and no drift between
+the two. `new-profile.sh` installs that block for you.
 
 `new-profile.sh` mirrors only symlinks — never `history.jsonl`, which must stay
 per-profile or session attribution collapses.

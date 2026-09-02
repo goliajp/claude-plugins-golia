@@ -30,12 +30,21 @@ fi
 echo "template: $TEMPLATE"
 mkdir -p "$DEST"
 count=0
+# find prints full paths — readlink takes them as-is. Prefixing $TEMPLATE
+# again silently produced zero links until the doctor reported 14 missing.
 while IFS= read -r entry; do
-  target=$(readlink "$TEMPLATE/$entry" 2>/dev/null) || continue
+  [ -L "$entry" ] || continue
+  target=$(readlink "$entry" 2>/dev/null) || continue
   [ -n "$target" ] || continue
   ln -sfn "$target" "$DEST/$(basename "$entry")"
   count=$((count + 1))
 done < <(find "$TEMPLATE" -maxdepth 1 -mindepth 1 -type l)
+
+if [ "$count" -eq 0 ]; then
+  echo "no symlinks found in $TEMPLATE — refusing to leave a half-built profile" >&2
+  rmdir "$DEST" 2>/dev/null || true
+  exit 1
+fi
 
 echo "created $DEST with $count symlinks mirrored from $(basename "$TEMPLATE")"
 
@@ -46,8 +55,13 @@ if command -v shasum >/dev/null 2>&1; then
   echo "keychain service once logged in: Claude Code-credentials-$HASH"
 fi
 
+# The alias is not left as an instruction: with the derived block installed,
+# the directory that was just created IS the alias, from the next shell on.
+echo
+"$(dirname "$0")/ensure-alias-block.sh" || echo "could not install the alias block — add claude$N by hand"
+
 echo
 echo "next:"
-echo "  1. add an alias:  alias claude$N='CLAUDE_CONFIG_DIR=~/.claude-profile-$N claude'"
-echo "  2. log in:        CLAUDE_CONFIG_DIR=~/.claude-profile-$N claude   then /login"
-echo "  3. verify:        profile-doctor.sh"
+echo "  1. open a new shell (or: source your rc) so claude$N resolves"
+echo "  2. log in:  claude$N   then /login"
+echo "  3. verify:  $(dirname "$0")/profile-doctor.sh"
