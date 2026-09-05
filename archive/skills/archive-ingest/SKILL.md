@@ -63,7 +63,7 @@ generates** (`@eaDir`, `#recycle`, `._*`, `.DS_Store`, `Thumbs.db`, Office's
 `.~*` lock files). A real file is never dropped by a registry rule — that
 requires an `EXCLUSION-LIST.tsv` row with evidence.
 
-## Writes go through six entry points. Never around them.
+## Writes go through seven entry points. Never around them.
 
 | tool | does | enforces |
 |---|---|---|
@@ -73,6 +73,7 @@ requires an `EXCLUSION-LIST.tsv` row with evidence.
 | `remove.py` | delete | refuses to delete a superseder; **re-measures the survivor at the moment of deletion**; logs to DELETION-LOG; drops the PLACED row |
 | `unpack.py` / `unpackx.py` | open a zip / rar / 7z | extracts only members not already bare; registers what it extracts; **prints everything it skipped** |
 | `annul.py` | retract a demotion | marks the SUPERSEDE-LOG row with `#`; history is never erased |
+| `srcclear.py` | **delete from a source** | verifies, file by file **at deletion time**, that a copy with the same sha256 exists *and is on disk* in the archive; logs to SOURCE-CLEAR-LOG |
 
 A bare `mv` / `rm` / `cp` inside the archive desynchronises the ledgers from
 reality, and the ledgers are the only instrument that can say what was lost.
@@ -134,9 +135,11 @@ they dropped, and both must be justified in the deletion reason.
 
 ## Red lines
 
-- **Never delete from a source** until `srccover.py` reports 0 unplaced for it,
-  `check.py` passes, and the archive-side copy was re-measured **at deletion
-  time** — not read off an earlier report. State moves between the report and
+- **Never delete from a source** except through `srcclear.py`, and only once
+  `srccover.py` reports 0 unplaced for it and `check.py` passes. Zero unplaced
+  is **necessary, not sufficient**: content-addressed coverage cannot see a
+  missing file whose content is boilerplate, and 94 code repositories passed it
+  while 87 of them could not be opened by git. State moves between the report and
   the delete; a run that reported 81 duplicate pairs measured 68 an hour later.
 - **Never decide from a filename.** A file named `給与所得の源泉徴収票` held a
   corporate tax filing; one named `部门活动策划表` held a price comparison of
