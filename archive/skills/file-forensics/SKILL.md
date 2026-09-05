@@ -76,6 +76,14 @@ usually slightly larger — but confirm rather than assume the direction.
   Linux returns the bytes as stored (NFC); macOS over SMB normalises to NFD. A
   ledger written on one and compared on the other reports *every* entry missing.
   Normalise (`unicodedata.normalize("NFC", …)`) before comparing paths.
+- **"Every byte-sequence is present" is weaker than "every file is present".**
+  Content-addressed coverage cannot see a missing file whose content is
+  boilerplate: `.git/HEAD` is the same 24 bytes in every repository, so one copy
+  anywhere satisfies the check for all of them. 94 repositories passed a
+  "0 unplaced" source check while 87 of them could not be opened by git at all.
+  For anything where *being at that path* is the point, verify the structure
+  works — and remember that **empty directories are not carried by a file-level
+  copy** (git will not open a repo whose `refs/` is missing).
 - **Two file counts taken with different conventions are not comparable.** A
   ledger that filtered AppleDouble files at build time, checked against a walk
   that filtered at compare time, differs by 403,000 entries with nothing having
