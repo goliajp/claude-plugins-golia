@@ -73,6 +73,21 @@
         "dns",
         "caddy"
       ]
+    },
+    {
+      "name": "archive",
+      "description": "Standard for getting files from a source into the curated pandanas archive — source registry, append-only ledgers, five write entry points — plus a project-agnostic file-forensics skill for deciding whether two files are the same and which to keep.",
+      "source": "./archive",
+      "version": "0.1.0",
+      "category": "productivity",
+      "tags": [
+        "archive",
+        "nas",
+        "dedup",
+        "ingest",
+        "forensics",
+        "provenance"
+      ]
     }
   ]
 }
