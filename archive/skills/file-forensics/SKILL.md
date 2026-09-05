@@ -72,6 +72,15 @@ usually slightly larger — but confirm rather than assume the direction.
   trusting "the text is identical".
 - **`sort -u` / `uniq` collapse distinct multi-byte strings under a UTF-8
   locale.** Export `LC_ALL=C` for the *whole* pipeline, not just one command.
+- **The same directory yields different path strings on different hosts.**
+  Linux returns the bytes as stored (NFC); macOS over SMB normalises to NFD. A
+  ledger written on one and compared on the other reports *every* entry missing.
+  Normalise (`unicodedata.normalize("NFC", …)`) before comparing paths.
+- **Two file counts taken with different conventions are not comparable.** A
+  ledger that filtered AppleDouble files at build time, checked against a walk
+  that filtered at compare time, differs by 403,000 entries with nothing having
+  changed. Decide where the filter lives and apply it on both sides — and skip
+  broken symlinks identically, since one side may count them and the other not.
 - **`ps w` truncates.** Use `/proc/*/cmdline` to decide whether a process lives.
 - **`print` to a pipe is block-buffered** — a running job looks stalled. Use
   `flush=True`, and give long scans progress output.
