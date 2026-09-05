@@ -63,10 +63,11 @@ generates** (`@eaDir`, `#recycle`, `._*`, `.DS_Store`, `Thumbs.db`, Office's
 `.~*` lock files). A real file is never dropped by a registry rule — that
 requires an `EXCLUSION-LIST.tsv` row with evidence.
 
-## Writes go through five entry points. Never around them.
+## Writes go through six entry points. Never around them.
 
 | tool | does | enforces |
 |---|---|---|
+| `place.py` | **bring a file in from a source** | refuses if the same content is already in the archive; re-hashes after the copy; records where it came from. Copies by default (the source stays read-only); `--move` takes it out |
 | `relocate.py` | move / rename | rewrites the PLACED row (appending creates ghost paths), logs to RENAME-LOG, refuses to demote a superseder |
 | `supersede.py` | demote an older version | moves to `superseded/`, logs the reason, refuses chain-breaking demotions |
 | `remove.py` | delete | refuses to delete a superseder; **re-measures the survivor at the moment of deletion**; logs to DELETION-LOG; drops the PLACED row |
@@ -75,6 +76,16 @@ requires an `EXCLUSION-LIST.tsv` row with evidence.
 
 A bare `mv` / `rm` / `cp` inside the archive desynchronises the ledgers from
 reality, and the ledgers are the only instrument that can say what was lost.
+
+### Production snapshots are a separate class
+
+Anything pulled from a **running production system** for an incident — a DB
+snapshot, quarantined WAL, a startup log — goes to `snapshots/`, not to an
+entity directory. Its value decays as the incident closes, so holding it is a
+liability rather than an asset, and the rules say so: directory 700 / files 600,
+one row per file in `SNAPSHOT-LOG.tsv` with a **mandatory retention date**
+(default one year), the capture's own notes stored alongside it, and invariant
+T41 (`snapchk.py`) flagging anything past its date. See `snapshots/README.md`.
 
 Two repair tools exist for when they do drift: `plclean.py` (drop PLACED rows
 whose file is gone *and* which have a DELETION-LOG record) and `exclzip.py`
