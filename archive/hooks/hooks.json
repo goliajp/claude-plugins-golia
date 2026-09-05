@@ -1,0 +1,16 @@
+{
+  "description": "archive PreToolUse hook — steers bare mv/rm/cp inside the pandanas archive to the five ledger-keeping entry points, and flags deleting a registered source before its coverage reaches zero",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

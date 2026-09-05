@@ -1,7 +1,7 @@
 {
   "name": "archive",
-  "version": "0.1.0",
-  "description": "Standard for getting files from a source (sync folder, external disk, rescue mirror, Downloads) into the curated pandanas archive: source registry, append-only ledgers, five write entry points, and the measurement discipline that keeps a dedup decision honest.",
+  "version": "0.2.0",
+  "description": "Standard for getting files from a source (sync folder, external disk, rescue mirror, Downloads) into the curated pandanas archive: source registry, append-only ledgers, five write entry points, and the measurement discipline that keeps a dedup decision honest. Ships a PreToolUse hook that steers bare mv/rm/cp inside the archive back to those entry points.",
   "author": {
     "name": "GOLIA K.K.",
     "url": "https://github.com/goliajp"
