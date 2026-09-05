@@ -23,12 +23,12 @@ claude plugin marketplace add https://github.com/goliajp/claude-plugins-golia
 claude plugin install port-registry@golia
 ```
 
-For multi-profile setups, install state is per-profile so you need to install in each one. The plugin cache is shared, so files only download once. One-liner sync:
+For multi-profile setups, install state is per-profile so you need to install in each one. The plugin cache is shared, so files only download once. One-liner sync (adjust the glob to wherever your profiles live):
 
 ```
-for p in 1 2 3; do
-  CLAUDE_CONFIG_DIR=~/.claude-profile-$p claude plugin marketplace add https://github.com/goliajp/claude-plugins-golia
-  CLAUDE_CONFIG_DIR=~/.claude-profile-$p claude plugin install port-registry@golia
+for dir in ~/.claude-profile-*; do
+  CLAUDE_CONFIG_DIR=$dir claude plugin marketplace add https://github.com/goliajp/claude-plugins-golia
+  CLAUDE_CONFIG_DIR=$dir claude plugin install port-registry@golia
 done
 ```
 

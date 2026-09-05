@@ -88,6 +88,20 @@
         "forensics",
         "provenance"
       ]
+    },
+    {
+      "name": "claude-profiles",
+      "description": "Add, remove and audit multiple Claude Code accounts on one machine. Creates the CLAUDE_CONFIG_DIR profile with the right symlink set, derives the keychain service name, wires the shell alias, and ships a doctor that checks the invariants a broken profile silently violates.",
+      "source": "./claude-profiles",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "tags": [
+        "claude-code",
+        "profiles",
+        "accounts",
+        "multi-account",
+        "keychain"
+      ]
     }
   ]
 }

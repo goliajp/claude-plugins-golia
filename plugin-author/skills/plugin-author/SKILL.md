@@ -240,12 +240,12 @@ Both must pass before installing. Common failures:
 
 ## Step 9: Install + smoke-test
 
-For our multi-profile setup:
+If you run multiple Claude profiles (one `CLAUDE_CONFIG_DIR` each), install state is per-profile — repeat the add + install in each one (adjust the glob to wherever your profiles live):
 
 ```bash
-for p in 1 2 3; do
-  CLAUDE_CONFIG_DIR=~/.claude-profile-$p claude plugin marketplace add <marketplace-root>
-  CLAUDE_CONFIG_DIR=~/.claude-profile-$p claude plugin install <plugin>@<marketplace-name>
+for dir in ~/.claude-profile-*; do
+  CLAUDE_CONFIG_DIR=$dir claude plugin marketplace add <marketplace-root>
+  CLAUDE_CONFIG_DIR=$dir claude plugin install <plugin>@<marketplace-name>
 done
 ```
 
