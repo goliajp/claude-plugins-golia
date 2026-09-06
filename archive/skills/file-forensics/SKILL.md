@@ -84,6 +84,26 @@ usually slightly larger — but confirm rather than assume the direction.
   For anything where *being at that path* is the point, verify the structure
   works — and remember that **empty directories are not carried by a file-level
   copy** (git will not open a repo whose `refs/` is missing).
+- **Encryption defeats content-addressed comparison entirely.** Encrypted
+  Office documents re-salt on every save, so the same plaintext yields
+  different bytes every time: five files that were pairwise "different" by
+  sha256 could only be ordered into a version chain after decrypting them. Any
+  dedup or coverage check that works on hashes is blind to encrypted files —
+  and so is the question "do we already hold this?".
+- **A password may be recoverable from the correspondence that delivered the
+  file.** Senders routinely mail the password separately ("PW is sent in a
+  separate mail"); searching the mailbox for that follow-up opened five
+  documents an archive had written off as unreadable. Before recording a file
+  as permanently opaque, look for the message that carried its key.
+- **A name that asserts a fact must be re-checked when the fact changes.** A
+  file labelled "unreadable" that has since been opened is now lying, and the
+  next reader believes it.
+- **Unicode normalisation bites name *markers*, not just path comparisons.** A
+  check that looks for a marker word inside a filename fails when the disk
+  returns NFD and the source literal is NFC — but only for words containing a
+  dakuten or other combining mark. A marker without one matches by luck, which
+  is how such a check passes for years and then breaks the day the wording
+  changes. Normalise both sides.
 - **A ledger cannot see a renamed file it never had a row for.** Anything that
   was already in place before the bookkeeping began has no row; rename it and
   the ledger has nothing to rewrite, while any earlier inventory now points at
