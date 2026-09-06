@@ -38,6 +38,23 @@ python3 .staging/srccover.py            # all registered sources, one report
 python3 .staging/srccover.py stsync     # just one
 ```
 
+**Content coverage is not enough on its own.** A file whose content is
+boilerplate — `.git/HEAD` is the same 24 bytes everywhere — is "covered" by a
+single copy anywhere in the archive, so a repository can be missing its HEAD and
+still pass. `srcstruct.py` (T43) is the second half: for each `.git` in a source
+it finds the archive's counterpart by path and compares the object inventory, so
+it answers *is this structure usable in the archive* rather than *do these bytes
+exist somewhere*. It runs on studio (git is not on the NAS).
+
+Two things it taught, both of which it found by being wrong first:
+
+- **Compare object inventories, not reachable refs.** The first version compared
+  ref tips and produced 14 false alarms: refs unreachable on *both* sides were
+  counted as losses, and git could not even open the source repositories because
+  macOS AppleDouble files (`._pack-*.idx`) are misread as pack indexes.
+- **Order the path mapping longest-prefix-first**, and treat a source repo whose
+  files are all in `EXCLUSION-LIST` as deliberately not kept rather than lost.
+
 ## Sources are registered, not assumed
 
 `SOURCES.tsv` in the archive root is the registry. **A new source gets a row
@@ -136,7 +153,8 @@ they dropped, and both must be justified in the deletion reason.
 ## Red lines
 
 - **Never delete from a source** except through `srcclear.py`, and only once
-  `srccover.py` reports 0 unplaced for it and `check.py` passes. Zero unplaced
+  `srccover.py` reports 0 unplaced, `srcstruct.py` (T43) reports no structure
+  lost, and `check.py` passes. Zero unplaced
   is **necessary, not sufficient**: content-addressed coverage cannot see a
   missing file whose content is boilerplate, and 94 code repositories passed it
   while 87 of them could not be opened by git. State moves between the report and
