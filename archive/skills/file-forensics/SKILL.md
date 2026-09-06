@@ -84,6 +84,21 @@ usually slightly larger — but confirm rather than assume the direction.
   For anything where *being at that path* is the point, verify the structure
   works — and remember that **empty directories are not carried by a file-level
   copy** (git will not open a repo whose `refs/` is missing).
+- **A rescale defeats every content-addressed check, and more pixels is not
+  more quality.** The same document photographed once and kept twice at
+  800×1156 and 820×1156 differed in **10 pixels out of 950,320** — identical
+  content, different bytes, invisible to any hash-based dedup. Which copy to
+  keep was decided by the JPEG's own evidence, not by size: the *smaller*
+  image carried `Adobe Photoshop CC`, 300 dpi, and quantization tables
+  averaging 10.1/13.3, while the larger one had no EXIF, tables averaging
+  23.1/34.7, and had been stretched horizontally. **Read the quantization
+  tables and EXIF before ranking two encodings of one image.**
+- **Finding those pairs needs two stages, and the first must not be a nested
+  loop.** Perceptual hash (dHash/aHash) split into bands for candidate
+  generation — 16 bands of 16 bits, so a pair within Hamming distance 12 is
+  missed with probability ~1e-5 — then confirm each candidate by resizing to a
+  common size and **counting pixels differing by more than 60**. Comparing
+  every pair directly is 2×10⁸ comparisons at 20k images and never finishes.
 - **Encryption defeats content-addressed comparison entirely.** Encrypted
   Office documents re-salt on every save, so the same plaintext yields
   different bytes every time: five files that were pairwise "different" by
