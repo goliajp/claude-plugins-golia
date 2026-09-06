@@ -84,6 +84,13 @@ usually slightly larger — but confirm rather than assume the direction.
   For anything where *being at that path* is the point, verify the structure
   works — and remember that **empty directories are not carried by a file-level
   copy** (git will not open a repo whose `refs/` is missing).
+- **A ledger cannot see a renamed file it never had a row for.** Anything that
+  was already in place before the bookkeeping began has no row; rename it and
+  the ledger has nothing to rewrite, while any earlier inventory now points at
+  a path that no longer exists. The file is alive and no record says so. When
+  the question is "does this content still exist", the only instrument that
+  answers it is a walk of the actual disk — index by size, hash the candidates.
+  Ledgers record what happened; they do not describe what is.
 - **Two file counts taken with different conventions are not comparable.** A
   ledger that filtered AppleDouble files at build time, checked against a walk
   that filtered at compare time, differs by 403,000 entries with nothing having
