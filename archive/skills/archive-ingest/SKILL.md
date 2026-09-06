@@ -191,6 +191,21 @@ bundles); flat mode with a prefix is for the curated layer. `--skip-junk` drops
 platform noise, `--skip-name` drops explicitly named members — both print what
 they dropped, and both must be justified in the deletion reason.
 
+## A check nobody calls is not a check
+
+The invariant suite grows by writing a script and running it once. That is how
+four of them ended up wired to nothing — including the structural pre-check that
+had, that same morning, been the only thing standing between a source deletion
+and 45 repositories with no counterpart in the archive. It ran because someone
+typed its name, not because the entry point called it.
+
+Audit this mechanically, not by memory: list the scripts the entry points
+actually invoke, list the scripts that claim an invariant number, and diff the
+two sets. Anything in the second set and not the first is decoration.
+
+The same rule applies to a new check the moment you write it: **wiring it into
+the entry point is part of writing it**, not a follow-up.
+
 ## Red lines
 
 - **Never delete from a source** except through `srcclear.py`, and only once
