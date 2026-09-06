@@ -90,7 +90,7 @@ requires an `EXCLUSION-LIST.tsv` row with evidence.
 | `remove.py` | delete | refuses to delete a superseder; **re-measures the survivor at the moment of deletion**; logs to DELETION-LOG; drops the PLACED row |
 | `unpack.py` / `unpackx.py` | open a zip / rar / 7z | extracts only members not already bare; registers what it extracts; **prints everything it skipped** |
 | `annul.py` | retract a demotion | marks the SUPERSEDE-LOG row with `#`; history is never erased |
-| `srcclear.py` | **delete from a source** | verifies, file by file **at deletion time**, that a copy with the same sha256 exists *and is on disk* in the archive; logs to SOURCE-CLEAR-LOG |
+| `srcclear.py` | **delete from a source** | verifies, file by file **at deletion time**, that the content survives — by one of four bases: a live `PLACED` path, an `EXCLUSION-LIST` row, a `DELETION-LOG` row, or **a live walk of the archive**; logs to SOURCE-CLEAR-LOG |
 
 A bare `mv` / `rm` / `cp` inside the archive desynchronises the ledgers from
 reality, and the ledgers are the only instrument that can say what was lost.
@@ -104,6 +104,25 @@ liability rather than an asset, and the rules say so: directory 700 / files 600,
 one row per file in `SNAPSHOT-LOG.tsv` with a **mandatory retention date**
 (default one year), the capture's own notes stored alongside it, and invariant
 T41 (`snapchk.py`) flagging anything past its date. See `snapshots/README.md`.
+
+#### The last step must look at the disk, not the ledger
+
+A file that was **already in the archive** before curation has no `PLACED` row.
+Rename it with `relocate.py` and it becomes invisible to every ledger: no
+`PLACED` row to rewrite, and its `ARCHIVE.pre` path is now stale. It is alive
+and well on disk, and no ledger can say so. Fifteen files hit exactly this on
+2026-09-06 — `zhangfan/作品集/` had been renamed to
+`zhangfan/ZHANGFAN_作品集_ポートフォリオ集/`, nothing was lost, and the ledgers
+could not prove it.
+
+So `srcclear.py`'s fourth basis is a **live walk of the archive**: index it by
+size, hash only the candidates that match, and accept the deletion when the
+content is found on disk. Ledgers record what happened; they do not describe
+what is. Before deleting anything, look at the thing itself.
+
+This also means **`srccover.py` reporting 0 unplaced can never authorise a
+delete**: it counts `ARCHIVE.pre` as coverage, which is strictly weaker. A
+source at 0 unplaced being refused by `srcclear` is normal, not a bug.
 
 Two repair tools exist for when they do drift: `plclean.py` (drop PLACED rows
 whose file is gone *and* which have a DELETION-LOG record) and `exclzip.py`
