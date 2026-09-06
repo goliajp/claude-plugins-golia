@@ -105,6 +105,28 @@ one row per file in `SNAPSHOT-LOG.tsv` with a **mandatory retention date**
 (default one year), the capture's own notes stored alongside it, and invariant
 T41 (`snapchk.py`) flagging anything past its date. See `snapshots/README.md`.
 
+#### A mailbox kept whole hides every document inside it
+
+An email archive stored as a bundle is opaque to every search of the archive:
+a contract that arrived only as an attachment cannot be found by name, by
+category, or by any invariant. Decoding all attachments in nine mailboxes
+(894 across 16,747 messages) and hashing them found **208 document-type
+attachments with no bare copy anywhere in the archive** — among them a
+fully-executed IP assignment agreement whose held copy was signed by one party
+only, and a set of tax filings held only as a scan.
+
+`mailextract.py` is the entry point (it records the message, date, sender and
+attachment name in the PLACED source column). Two rules govern it:
+
+- **"Not present" from a hash comparison means the *bytes* are absent, not the
+  content.** A residence-card PDF flagged as missing turned out to be the same
+  two-page scan the archive already held, re-encoded — identical to within
+  0.018% of pixels. Compare content before extracting, every time.
+- **Keeping both copies is correct here.** The `.eml` is the record of the
+  correspondence; the extracted file is the document. That is a difference of
+  role, not a duplicate, and the "don't keep containers" rule does not apply to
+  a mailbox.
+
 #### The last step must look at the disk, not the ledger
 
 A file that was **already in the archive** before curation has no `PLACED` row.
