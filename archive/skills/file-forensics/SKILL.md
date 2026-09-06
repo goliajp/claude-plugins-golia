@@ -96,6 +96,11 @@ usually slightly larger — but confirm rather than assume the direction.
   script reports zero failures. Use `ssh -n`, read the list on a non-standard fd.
 - **macOS has no `timeout`** — a dead prober and an unreachable host produce
   identical output.
+- **`find … -type d -empty -delete` removes structurally-required empty
+  directories.** git will not open a repository whose `refs/` is missing, and
+  `refs/` is legitimately empty when all refs live in `packed-refs`. Cleaning up
+  empty directories immediately after restoring them undid the repair and turned
+  12 repositories red again.
 - **`du` counts reflinks** — it can report 2.29 TB where `df` says 1.4 TB.
 - **`@eaDir` grows when writing over SMB** and breaks checks that enumerate a
   single directory.
