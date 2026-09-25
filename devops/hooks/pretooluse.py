@@ -67,7 +67,7 @@ MUTATION_MSG = (
     "This looks like a hand-crafted mutation against the devops API "
     "(devops.golia.jp/api/...). Do NOT change infra this way — the raw call "
     "skips the red-line confirm/diff/audit that the CLI primitive enforces. "
-    "Use the blessed verb instead: `devops dns add|rm`, `devops caddy add|rm`, "
+    "Use the blessed verb instead: `devops dns add|rm`, `devops caddy add|rm|set-block`, "
     "`devops deploy`, `devops secrets`, etc. Find the exact one with "
     "`curl -s https://devops.golia.jp/api/meta/capabilities | jq`. "
     "Load the `devops` skill for the red lines."
@@ -76,9 +76,10 @@ MUTATION_MSG = (
 FORCE_DEPLOY_MSG = (
     "`caddy deploy --force` regenerates the ENTIRE live Caddyfile from the "
     "store and overwrites it — any live-only site disappears. This is a red "
-    "line: run `devops caddy drift <device>` and review the diff FIRST. If "
-    "you're removing one site, `devops caddy rm` prints the block and confirms "
-    "before forcing. Load the `devops` skill."
+    "line: run `devops caddy drift <device>` and review the diff FIRST. To "
+    "remove one site use `devops caddy rm`; to change one site's block use "
+    "`devops caddy set-block` — both print the change and confirm before "
+    "forcing. Load the `devops` skill."
 )
 
 
