@@ -1,0 +1,16 @@
+{
+  "description": "devops PreToolUse hook — steers hand-crafted devops API mutations (and caddy deploy --force) toward the safe CLI primitive and the red-line flow",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
