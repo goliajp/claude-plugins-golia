@@ -1,6 +1,6 @@
 {
   "name": "devops",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reach the goliajp devops control plane safely from any project. A skill that teaches when/how to use the `devops` CLI and the infra red lines, plus a PreToolUse hook that steers hand-crafted API mutations back to the safe primitive.",
   "author": {
     "name": "GOLIA K.K.",
