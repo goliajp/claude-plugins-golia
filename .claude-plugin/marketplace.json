@@ -64,7 +64,7 @@
       "name": "devops",
       "description": "Reach the goliajp devops control plane safely from any project — a skill for when/how to use the devops CLI and the infra red lines, plus a PreToolUse hook that steers hand-crafted API mutations back to the safe primitive.",
       "source": "./devops",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "developer-tools",
       "tags": [
         "devops",

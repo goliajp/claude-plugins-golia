@@ -50,7 +50,7 @@ stop: there is a `devops` verb for it (`curl /api/meta/capabilities` to find it)
 | Action | Rule |
 |---|---|
 | **Delete a DNS record** | `devops dns rm <zone> <name>` — it confirms each live record y/N. NEVER `curl -X DELETE .../api/dns/live/...` by hand. Records you didn't create may be someone else's. |
-| **`caddy deploy --force`** | Regenerates the ENTIRE live Caddyfile from the store and overwrites it — any live-only site vanishes. Run `devops caddy drift <device>` and review the diff FIRST. `devops caddy rm` does this for you (prints the block, asks before forcing). |
+| **`caddy deploy --force`** | Regenerates the ENTIRE live Caddyfile from the store and overwrites it — any live-only site vanishes. Run `devops caddy drift <device>` and review the diff FIRST. `devops caddy rm` and `devops caddy set-block` do this for you (they refuse while other drift exists, print the change, and ask before forcing). |
 | **DNS sync with deletes** | `devops dns sync` never auto-deletes; it prompts per record. Don't work around the prompt. |
 | **Delete a secret** | irreversible — confirm the exact key first. |
 | **SSH to a managed device** | every SSH op must leave an audit entry (the platform does this for you through the API — prefer the API/CLI over raw ssh). |
@@ -67,6 +67,7 @@ select(.red_line)'`.
 - **Add a subdomain / route** → `devops dns add <zone> <name> --type CNAME
   --value t01.golia.jp.` and `devops caddy add <device> <id> --domain d
   --proxy 127.0.0.1:PORT`. One primitive each; both sync/deploy for you.
+- **Change an existing site's Caddy config** (a header, a new `handle`) → write the block to a file, `devops caddy set-block <device> <id> --file <path>`. Never edit `/etc/caddy/Caddyfile` by hand.
 - **Take a domain/service offline** → `devops caddy rm` + `devops dns rm`
   (both walk you through the red-line confirmation).
 - **Check health / find a problem** → `devops health`, `devops status`,
