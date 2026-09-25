@@ -1,0 +1,224 @@
+---
+name: archive-ingest
+description: Use when moving files INTO the curated archive on pandanas (`/volume1/PandanasShared`, mounted at `~/nas/pandanas` on studio) — sorting a source tree, clearing `~/Downloads`, absorbing a new disk or sync folder, unpacking archives, renaming/classifying documents, deduplicating, demoting old versions, or deciding whether a source can finally be deleted. Also triggers when asked "整理到 NAS", "这些文件怎么归档", "新的源怎么处理", or when about to run `mv`/`rm`/`cp` inside that archive. The archive keeps append-only ledgers and 40 invariants; bypassing them silently breaks the only thing that can answer "what did we lose".
+---
+
+# Getting files into the pandanas archive
+
+There is a curated archive at `/volume1/PandanasShared` on **pandanas**
+(`lihao@192.168.50.26`; SMB-mounted on studio at `~/nas/pandanas`). Everything
+that flows into it comes from a **source** — a sync folder, an external disk, a
+rescue mirror, a Downloads directory. Sources keep producing, and new ones
+appear. This skill is the protocol for that flow.
+
+**The authority is `INGEST.md` in the archive root.** Read it before doing
+anything non-trivial — it carries the current entry points and the traps that
+have actually bitten. This skill is the map; that file is the terrain.
+
+```bash
+ssh lihao@192.168.50.26 'cat /volume1/PandanasShared/INGEST.md'
+```
+
+## The one invariant everything else serves
+
+Every file in a registered source is in exactly one of three states:
+
+| state | ledger | meaning |
+|---|---|---|
+| placed | `PLACED.tsv` | it is in the archive |
+| pre-existing | `ARCHIVE.pre` | it was in the archive before the curation began |
+| excluded | `EXCLUSION-LIST.tsv` | deliberately not placed, **with a reason and measured evidence** |
+
+Anything in none of them is **未落位** (unplaced). A source with unplaced files
+cannot be deleted. That is the whole point: the archive can answer "what did we
+lose" only while that invariant holds.
+
+```bash
+python3 .staging/srccover.py            # all registered sources, one report
+python3 .staging/srccover.py stsync     # just one
+```
+
+**Content coverage is not enough on its own.** A file whose content is
+boilerplate — `.git/HEAD` is the same 24 bytes everywhere — is "covered" by a
+single copy anywhere in the archive, so a repository can be missing its HEAD and
+still pass. `srcstruct.py` (T43) is the second half: for each `.git` in a source
+it finds the archive's counterpart by path and compares the object inventory, so
+it answers *is this structure usable in the archive* rather than *do these bytes
+exist somewhere*. It runs on studio (git is not on the NAS).
+
+Two things it taught, both of which it found by being wrong first:
+
+- **Compare object inventories, not reachable refs.** The first version compared
+  ref tips and produced 14 false alarms: refs unreachable on *both* sides were
+  counted as losses, and git could not even open the source repositories because
+  macOS AppleDouble files (`._pack-*.idx`) are misread as pack indexes.
+- **Order the path mapping longest-prefix-first**, and treat a source repo whose
+  files are all in `EXCLUSION-LIST` as deliberately not kept rather than lost.
+
+## Sources are registered, not assumed
+
+`SOURCES.tsv` in the archive root is the registry. **A new source gets a row
+before it gets touched.** Columns: id / state / kind / place / collecting host /
+exclusion rules / ledger path / verification mode / note.
+
+```bash
+# 1. add the row to SOURCES.tsv
+# 2. build its ledger — ON THE COLLECTING HOST named in the row
+python3 .staging/srcledger.py <id> --apply
+# 3. diff it against the archive
+python3 .staging/srccover.py <id>
+# 4. work the unplaced list down to zero
+# 5. only then set state=retired and delete the source
+```
+
+`srcledger.py` refuses to run on the wrong host — a ledger built where the
+source isn't mounted would be silently empty, and an empty ledger looks exactly
+like a fully-absorbed source.
+
+**Exclusion rules in the registry are only for what the platform itself
+generates** (`@eaDir`, `#recycle`, `._*`, `.DS_Store`, `Thumbs.db`, Office's
+`.~*` lock files). A real file is never dropped by a registry rule — that
+requires an `EXCLUSION-LIST.tsv` row with evidence.
+
+## Writes go through seven entry points. Never around them.
+
+| tool | does | enforces |
+|---|---|---|
+| `place.py` | **bring a file in from a source** | refuses if the same content is already in the archive; re-hashes after the copy; records where it came from. Copies by default (the source stays read-only); `--move` takes it out |
+| `relocate.py` | move / rename | rewrites the PLACED row (appending creates ghost paths), logs to RENAME-LOG, refuses to demote a superseder |
+| `supersede.py` | demote an older version | moves to `superseded/`, logs the reason, refuses chain-breaking demotions |
+| `remove.py` | delete | refuses to delete a superseder; **re-measures the survivor at the moment of deletion**; logs to DELETION-LOG; drops the PLACED row |
+| `unpack.py` / `unpackx.py` | open a zip / rar / 7z | extracts only members not already bare; registers what it extracts; **prints everything it skipped** |
+| `annul.py` | retract a demotion | marks the SUPERSEDE-LOG row with `#`; history is never erased |
+| `srcclear.py` | **delete from a source** | verifies, file by file **at deletion time**, that the content survives — by one of four bases: a live `PLACED` path, an `EXCLUSION-LIST` row, a `DELETION-LOG` row, or **a live walk of the archive**; logs to SOURCE-CLEAR-LOG |
+
+A bare `mv` / `rm` / `cp` inside the archive desynchronises the ledgers from
+reality, and the ledgers are the only instrument that can say what was lost.
+
+### Production snapshots are a separate class
+
+Anything pulled from a **running production system** for an incident — a DB
+snapshot, quarantined WAL, a startup log — goes to `snapshots/`, not to an
+entity directory. Its value decays as the incident closes, so holding it is a
+liability rather than an asset, and the rules say so: directory 700 / files 600,
+one row per file in `SNAPSHOT-LOG.tsv` with a **mandatory retention date**
+(default one year), the capture's own notes stored alongside it, and invariant
+T41 (`snapchk.py`) flagging anything past its date. See `snapshots/README.md`.
+
+#### A mailbox kept whole hides every document inside it
+
+An email archive stored as a bundle is opaque to every search of the archive:
+a contract that arrived only as an attachment cannot be found by name, by
+category, or by any invariant. Decoding all attachments in nine mailboxes
+(894 across 16,747 messages) and hashing them found **208 document-type
+attachments with no bare copy anywhere in the archive** — among them a
+fully-executed IP assignment agreement whose held copy was signed by one party
+only, and a set of tax filings held only as a scan.
+
+`mailextract.py` is the entry point (it records the message, date, sender and
+attachment name in the PLACED source column). Two rules govern it:
+
+- **"Not present" from a hash comparison means the *bytes* are absent, not the
+  content.** A residence-card PDF flagged as missing turned out to be the same
+  two-page scan the archive already held, re-encoded — identical to within
+  0.018% of pixels. Compare content before extracting, every time.
+- **Keeping both copies is correct here.** The `.eml` is the record of the
+  correspondence; the extracted file is the document. That is a difference of
+  role, not a duplicate, and the "don't keep containers" rule does not apply to
+  a mailbox.
+
+#### The last step must look at the disk, not the ledger
+
+A file that was **already in the archive** before curation has no `PLACED` row.
+Rename it with `relocate.py` and it becomes invisible to every ledger: no
+`PLACED` row to rewrite, and its `ARCHIVE.pre` path is now stale. It is alive
+and well on disk, and no ledger can say so. Fifteen files hit exactly this on
+2026-09-06 — `zhangfan/作品集/` had been renamed to
+`zhangfan/ZHANGFAN_作品集_ポートフォリオ集/`, nothing was lost, and the ledgers
+could not prove it.
+
+So `srcclear.py`'s fourth basis is a **live walk of the archive**: index it by
+size, hash only the candidates that match, and accept the deletion when the
+content is found on disk. Ledgers record what happened; they do not describe
+what is. Before deleting anything, look at the thing itself.
+
+This also means **`srccover.py` reporting 0 unplaced can never authorise a
+delete**: it counts `ARCHIVE.pre` as coverage, which is strictly weaker. A
+source at 0 unplaced being refused by `srcclear` is normal, not a bug.
+
+Two repair tools exist for when they do drift: `plclean.py` (drop PLACED rows
+whose file is gone *and* which have a DELETION-LOG record) and `exclzip.py`
+(absorb source-side copies that became unplaced because the archive-side archive
+was removed).
+
+## Getting one file in — eight stages
+
+1. **Collect** — build the source ledger. The source is read-only, always.
+2. **Diff** — produce the unplaced list.
+3. **Triage** — duplicate / older version / excludable / unsorted.
+4. **Read** — *open the file*. See the sibling `file-forensics` skill.
+5. **Name** — entity + category + description + date. The date is the date
+   **inside** the document; mtime is the backup date and a `_YYYYMMDD_HHMMSS`
+   suffix is an export timestamp (measured 1.5–2.5 years off).
+6. **Place** — `relocate.py`. Inside a bundle directory, original names stay.
+7. **Verify** — `python3 .staging/check.py` (T1–T40, 12–25 min).
+   **Do not mutate the archive while it runs** — it produces false failures.
+8. **Record** — write what you *learned* into the entity's README. Counts are
+   fixed by `fixcount.py` / `catcount.py` / `prosecount.py` / `roster.py` /
+   `mdsync.py`, not by hand.
+
+### Duplicates and versions — the standing rule
+
+- byte-identical → keep one
+- different versions → **keep the newest, demote the rest to `superseded/`**
+- different *roles* (a curated document vs. the same bytes inside a submitted
+  package) → keep both, and say why in the README
+
+`superseded/` is not a delete queue. Files there were sometimes the ones
+actually submitted.
+
+### Archives (zip / rar / 7z)
+
+**Unpack them; don't keep the container.** Three recorded exceptions, each
+written into the root README with its reason:
+
+1. it contains a private key (unpacking scatters keys through the archive)
+2. unpacking yields tens of thousands of members
+3. it *is* the distribution (a third-party app's dmg/7z, not a wrapper)
+
+`unpack.py --tree` restores members at their in-archive relative paths (for
+bundles); flat mode with a prefix is for the curated layer. `--skip-junk` drops
+platform noise, `--skip-name` drops explicitly named members — both print what
+they dropped, and both must be justified in the deletion reason.
+
+## A check nobody calls is not a check
+
+The invariant suite grows by writing a script and running it once. That is how
+four of them ended up wired to nothing — including the structural pre-check that
+had, that same morning, been the only thing standing between a source deletion
+and 45 repositories with no counterpart in the archive. It ran because someone
+typed its name, not because the entry point called it.
+
+Audit this mechanically, not by memory: list the scripts the entry points
+actually invoke, list the scripts that claim an invariant number, and diff the
+two sets. Anything in the second set and not the first is decoration.
+
+The same rule applies to a new check the moment you write it: **wiring it into
+the entry point is part of writing it**, not a follow-up.
+
+## Red lines
+
+- **Never delete from a source** except through `srcclear.py`, and only once
+  `srccover.py` reports 0 unplaced, `srcstruct.py` (T43) reports no structure
+  lost, and `check.py` passes. Zero unplaced
+  is **necessary, not sufficient**: content-addressed coverage cannot see a
+  missing file whose content is boilerplate, and 94 code repositories passed it
+  while 87 of them could not be opened by git. State moves between the report and
+  the delete; a run that reported 81 duplicate pairs measured 68 an hour later.
+- **Never decide from a filename.** A file named `給与所得の源泉徴収票` held a
+  corporate tax filing; one named `部门活动策划表` held a price comparison of
+  five restaurants; one named `署名済` was the copy *missing* a seal.
+- **Never mutate during `check.py`.**
+- **Never let a private key land outside `keys/`**, and keys are mode 600.
+- **Third-party personal data** (other people's IDs, grades, customer tables,
+  applicant CVs) gets flagged in the root README's §六, not quietly filed.
