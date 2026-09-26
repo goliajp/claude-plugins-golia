@@ -1,7 +1,6 @@
 # Local-only — never published to the public marketplace.
 
 # Claude Code project state — CLAUDE.md, settings.local.json, agents/commands, runtime caches, etc.
-.claude/
 
 # Dev tooling: helpers for *making* plugins (authoring notes, scripts, templates).
 .dev/
