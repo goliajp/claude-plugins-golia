@@ -12,7 +12,8 @@
 #   sync_paths  globs whose hit turns an async check sync for this close
 #   needs       a prerequisite check (a row with stamp `-`)
 #   show        stamp keys the verdict's result section lists, `,`-separated (dotted = nested)
-#   regress     <key>:down|up|nonzero — red when the reading moved that way against the previous stamp; `~` prefix = amber
+#   regress     <key>:down|up|nonzero — red when the reading moved that way against the previous stamp; `~` prefix = amber;
+#               <key>:each-up:<rel>[:<k>[:<ceiling>]] — per entry of a map of repeated readings (docs/data.md)
 #
 # decision per check: diff(<its stamp's headSha>..HEAD) hits `paths` → run; else carried from that sha.
 # a missing stamp, a -dirty sha, a sha not in the repo, or a red verdict → run. no thresholds: the table is the rule.

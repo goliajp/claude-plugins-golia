@@ -28,8 +28,10 @@ change to the table.
 """
 import datetime
 import json
+import math
 import os
 import re
+import statistics
 import subprocess
 import sys
 
@@ -294,6 +296,22 @@ def match_paths(files, inc, exc):
     return hits
 
 
+REGRESS_OPS = ("down", "up", "nonzero", "each-up")
+
+
+def regress_spec_error(spec):
+    """why a `regress` cell entry cannot be judged (None when it can): an unknown op judges nothing, silently"""
+    key, _, op = spec.lstrip("~").partition(":")
+    name, *params = op.split(":")
+    if not key or name not in REGRESS_OPS:
+        return f"want <key>:{'|'.join(REGRESS_OPS)}"
+    if name != "each-up":
+        return "takes no parameters" if params else None
+    if not 1 <= len(params) <= 3 or any(num(x) is None or num(x) < 0 for x in params):
+        return "each-up takes <rel>[:<k>[:<ceiling>]], non-negative numbers"
+    return None
+
+
 def load_rules():
     if not RULES or not os.path.isfile(RULES):
         die(f"rules table missing: {RULES or '(ROTATION_CLOSE_RULES unset)'}")
@@ -314,6 +332,10 @@ def load_rules():
             r["needs"] = r["needs"] if r["needs"] != "-" else None
             r["show"] = [k for k in r["show"].split(",") if k and k != "-"]
             r["regress"] = [k for k in r["regress"].split(";") if k and k != "-"]
+            for spec in r["regress"]:
+                bad = regress_spec_error(spec)
+                if bad:
+                    die(f"{RULES}:{n}: regress `{spec}`: {bad}")
             r["_inc"], r["_exc"] = parse_globs(r["paths"])
             r["_sinc"], r["_sexc"] = parse_globs(r["sync_paths"])
             rules.append(r)
@@ -616,14 +638,23 @@ def is_ancestor(sha, base):
     return r.returncode == 0
 
 
+def voided(history):
+    """(tool, ranAt) of every row a later void row withdrew. stamps.jsonl is append-only, so a reading found wrong
+    after the fact (a meter that measured less than it claimed) is withdrawn by appending
+    {"tool": "stamp.void", "void": [{"tool": …, "ranAt": …, "headSha": …}, …], "reason": …}"""
+    return {(v.get("tool"), v.get("ranAt")) for s in history if isinstance(s.get("void"), list)
+            for v in s["void"] if isinstance(v, dict)}
+
+
 def previous_row(history, tool, cur, base):
-    """the baseline a reading is judged against: the last non-carried row of this tool that measured the round's
-    start `base` or a commit before it, and not the current stamp's own commit. a stamp taken mid-round is never
-    the baseline — one measured under lighter load made the round's own end read as a regression while the
-    readings at the round's start and end were the same"""
+    """the baseline a reading is judged against: the last non-carried, non-voided row of this tool that measured
+    the round's start `base` or a commit before it, and not the current stamp's own commit. a stamp taken
+    mid-round is never the baseline — one measured under lighter load made the round's own end read as a
+    regression while the readings at the round's start and end were the same"""
     cur_sha = cur.get("headSha") or ""
+    void = voided(history)
     for s in reversed(history):
-        if s.get("tool") != tool or s.get("carried"):
+        if s.get("tool") != tool or s.get("carried") or (tool, s.get("ranAt")) in void:
             continue
         sha = s.get("headSha") or ""
         if not sha or sha.endswith("-dirty") or same_sha(sha, cur_sha):
@@ -631,6 +662,40 @@ def previous_row(history, tool, cur, base):
         if is_ancestor(sha, base):
             return s
     return None
+
+
+def readings(v):
+    """one positive reading, or a list of repeated ones, as a list; None when it is neither"""
+    xs = [num(x) for x in v] if isinstance(v, list) else [num(v)]
+    return xs if xs and all(x is not None and x > 0 for x in xs) else None
+
+
+def each_up(cur, prev, params):
+    """`each-up:<rel>[:<k>[:<ceiling>]]` over a map of lower-is-better readings: every entry both maps carry is
+    judged, an entry only one of them has is not. an entry is one reading, or a list of repeats; two lists of at
+    least three are judged on their medians, and the move must also clear the noise the repeats show: every new
+    reading above every old one, and (for the `rel` bar) the log move above k times the larger log-spread
+    (max/min) of the two lists. a shorter list is judged on nothing. hit: the median rose by more than `rel`, or
+    it crossed `ceiling` from below. returns [(entry, previous median, current median)]"""
+    rel, k, ceiling = (num(params[i]) if len(params) > i else d for i, d in enumerate((0, 0, None)))
+    hits = []
+    if not isinstance(cur, dict) or not isinstance(prev, dict):
+        return hits
+    for name in sorted(set(cur) & set(prev)):
+        a, b = readings(prev[name]), readings(cur[name])
+        if a is None or b is None:
+            continue
+        repeats = isinstance(prev[name], list) and isinstance(cur[name], list)
+        if repeats and (len(a) < 3 or len(b) < 3):
+            continue
+        ma, mb = statistics.median(a), statistics.median(b)
+        apart = min(b) > max(a) if repeats else True
+        spread = max(math.log(max(a) / min(a)), math.log(max(b) / min(b))) if repeats else 0.0
+        up = math.log(mb / ma) > max(math.log1p(rel), k * spread)
+        crossed = ceiling is not None and ma < ceiling <= mb
+        if apart and (up or crossed):
+            hits.append((name, round(ma, 4), round(mb, 4)))
+    return hits
 
 
 def fill(rid):
@@ -677,6 +742,11 @@ def fill(rid):
         for spec in r["regress"]:
             level = "amber" if spec.startswith("~") else "red"
             key, _, op = spec.lstrip("~").partition(":")
+            if op.startswith("each-up"):
+                for name, pv, cv in (each_up(dig(doc, key), dig(prev, key), op.split(":")[1:]) if prev else []):
+                    flags.append({"level": level, "key": f"{key}.{name}", "value": cv, "previous": pv, "op": "each-up"})
+                    (red if level == "red" else amber).append(f"{c['name']}: {key}.{name} {pv} → {cv}")
+                continue
             cn, pn = num(dig(doc, key)), num(dig(prev, key)) if prev else None
             hit = False
             if op == "nonzero":

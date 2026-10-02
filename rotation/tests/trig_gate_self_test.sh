@@ -82,6 +82,12 @@
 #  69  stats --effect (table): the round's line, and the null note
 #  70  stats --suggest under the bootstrap count            → how many more rounds
 #  71  stats --suggest with enough rows                     → p10/p50/p90, N = ⌊p50 × 0.8⌋, cap = active p90 (or how many more)
+#  72  TRIG-9 switch absent (off)                       → no TRIG-9 line, exit 0 (a red verdict changes nothing)
+#  73  TRIG-9 on, no verdict for the round              → exit 1, TRIG-9 FAIL (not SKIP)
+#  74  TRIG-9 on, verdict planned but never filled      → exit 1, TRIG-9 FAIL
+#  75  TRIG-9 on, filled verdict with red              → exit 1, TRIG-9 FAIL naming each red line
+#  76  TRIG-9 on, filled verdict with red=0            → TRIG-9 PASS, exit 0
+#  77  TRIG-9 switch with an unknown value              → exit 2
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -586,6 +592,31 @@ CONF="$TMP/conf-trig8.conf" run_case "52 TRIG-8 on: substrate changed, no gate.e
 CONF="$TMP/conf-trig8-src.conf" run_case "53 TRIG-8 on: nothing on a trigger path needs no gate" 0 'TRIG-8 PASS substrateFiles=0 gateEnds=0 atHead=no missing=no'
 CONF="$TMP/conf-trig8-bogus.conf" run_case "54 unknown TRIG-8 switch value is a configuration error" 2 'ROTATION_TRIG8_GATE_COVERAGE must be on or off'
 CONF="$TMP/conf-trig8-norules.conf" run_case "55 TRIG-8 on without a rules table" 1 'TRIG-8 FAIL no rules table \(ROTATION_CLOSE_RULES\)'
+
+# ── TRIG-9: the round's filled close verdict has no red ─────────────────
+# Same range and handoff as case 50 (which passes with TRIG-8 off); the round is r-x (the last rotations row).
+mkdir -p "$TMP/verdicts"
+mk_conf "$TMP/conf-trig9.conf" "$LOW" "$LOWC" 'ROTATION_TRIG9_VERDICT_RED=on'
+mk_conf "$TMP/conf-trig9-bogus.conf" "$LOW" "$LOWC" 'ROTATION_TRIG9_VERDICT_RED=1'
+EXTRA_ENV=(ROTATION_VERDICT_DIR="$TMP/verdicts")
+printf '{"headSha":"%s","checks":[],"results":{"filledAt":"x","red":["clippy: total 1 → 22"],"amber":[]}}\n' "$(g rev-parse HEAD)" > "$TMP/verdicts/r-x.verdict.json"
+out=$(CONF="$TMP/conf-trig8-off.conf" run_gate bash "$GATE" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s\n' "$out" | grep -q 'TRIG-9'; then
+  ok "72 TRIG-9 off by default: no TRIG-9 line, a red verdict does not block, exit 0"
+else
+  bad "72 TRIG-9 off by default" "exit=$rc out=[$out]"
+fi
+rm -f "$TMP/verdicts/r-x.verdict.json"
+CONF="$TMP/conf-trig9.conf" run_case "73 TRIG-9 on: no verdict for the round is a FAIL" 1 "TRIG-9 FAIL no close verdict for round r-x at $TMP/verdicts/r-x.verdict.json"
+printf '{"headSha":"%s","checks":[]}\n' "$(g rev-parse HEAD)" > "$TMP/verdicts/r-x.verdict.json"
+CONF="$TMP/conf-trig9.conf" run_case "74 TRIG-9 on: a verdict never filled is a FAIL" 1 'TRIG-9 FAIL close verdict .*r-x.verdict.json was never filled — run close_verdict_fill.sh r-x'
+printf '{"headSha":"%s","checks":[],"results":{"filledAt":"x","red":["clippy: total 1 → 22","sweep: pass 100 → 90"],"amber":["bench: x"]}}\n' "$(g rev-parse HEAD)" > "$TMP/verdicts/r-x.verdict.json"
+CONF="$TMP/conf-trig9.conf" run_case "75 TRIG-9 on: red in the verdict blocks, each red line named" 1 \
+  "TRIG-9 FAIL close verdict of r-x \(head $(g rev-parse --short=9 HEAD)\) has 2 red: clippy: total 1 → 22; sweep: pass 100 → 90"
+printf '{"headSha":"%s","checks":[],"results":{"filledAt":"x","red":[],"amber":["bench: x"]}}\n' "$(g rev-parse HEAD)" > "$TMP/verdicts/r-x.verdict.json"
+CONF="$TMP/conf-trig9.conf" run_case "76 TRIG-9 on: red=0 passes" 0 'TRIG-9 PASS close verdict of r-x \(head [0-9a-f]{9}\): red=0 amber=1'
+CONF="$TMP/conf-trig9-bogus.conf" run_case "77 unknown TRIG-9 switch value is a configuration error" 2 'ROTATION_TRIG9_VERDICT_RED must be on or off'
+EXTRA_ENV=()
 
 # ── observe mode: TRIG-1a / TRIG-2 computed and printed, not enforced ──
 # The range is HEAD~4..HEAD: three first-parent commits of the main session (the fourth carries
