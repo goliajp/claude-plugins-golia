@@ -24,6 +24,23 @@
 # Then the same round with a gate that prints its line but records no gate.end:
 #   adapter_run.sh refuses the claim (exit 64), the plan says MISSING, fill is
 #   red, trigger.sh self is blocked by TRIG-8 (on in this conf) and writes no row.
+# After the recorded round the Stop hook runs from a subdirectory with the intent
+# pending: a dirty tree keeps the intent (INV-2 red), a clean one consumes it.
+# Then a third round is interrupted in every way the recovery tools know, with the
+# real scripts writing the events (the clock is the scripts' own; thresholds are
+# lowered through --stale and ROTATION_WAKE_AFTER, never by waiting them out):
+#   session lost       recover.sh from the registering session → RESUME <id>; from another
+#                      session → RESPAWN …(id,mismatch); without a session id → (id,no-session)
+#   executor silent    registered and never wrote again → watchdog STALE (11) once --stale passed
+#   remote job lost    remote.start with no remote.end: marker in the local log → the page offers
+#                      the command that records the end (and running it closes the job); no
+#                      marker → not-seen, nothing offered
+#   WAKE               executor.waiting on a worker whose agent.end arrived → WAKE (10); no waiting
+#                      but a remote.end followed by silence for ROTATION_WAKE_AFTER → WAKE
+#   QUOTA              quota.hit whose reset passed and nothing after → QUOTA (12); manager.resume
+#                      answers it
+#   MULTI-EXECUTOR     a second running executor → exit 15; ending it clears the flag
+#   FOREIGN-COMMIT     marker present, executor ended, a commit on the main tree after → exit 14
 #
 # exit: 0 every case passed · 1 otherwise
 
@@ -85,6 +102,7 @@ ROTATION_AXES=A,B
 ROTATION_STAMPS=sweep
 ROTATION_SWEEP_STAMP=sweep
 ROTATION_CLOSE_RULES=$R/rules.tsv
+ROTATION_WAKE_AFTER=${E2E_WAKE_AFTER:-300}
 EOF
   # the project's adapter: directories and the four commands; no probe and no remote grep (no runner)
   cat > "$R/project.sh" <<EOF
@@ -128,13 +146,18 @@ EOF
   cat > "$BIN/segment.sh" <<EOF
 #!/bin/bash
 # a close segment with no runner: the sweep stamp at this head and its history row, between start and end on record
+# (E2E_SEG_HANG=1: the session died right after the start — no log, no end;
+#  E2E_SEG_NO_END=1: the job finished and wrote its terminal line, nobody recorded the end)
 set -u
 head=\$1; seg=\$2; log="$LOGS/rc-seg-\$head-\$seg.log"
 "$KERNEL/event.sh" remote.start "remote.kind=close.\$seg" "remote.sha=\$head" "remote.log=\$log" "remote.marker=^DONE segment=\$seg head=\$head " >/dev/null
+[ "\${E2E_SEG_HANG:-0}" = 1 ] && exit 0
 printf '{"tool":"sweep","ranAt":"%s","headSha":"%s","headShaSource":"arg","verdict":"ok","harnessError":0,"pass":101,"passTotal":121}\n' "\$(date -u +%FT%TZ)" "\$head" > "$STAMPS/sweep-latest.json"
 cat "$STAMPS/sweep-latest.json" >> "$STAMPS/stamps.jsonl"
 echo "DONE segment=\$seg head=\$head rc=0" > "\$log"
-"$KERNEL/event.sh" remote.end "remote.kind=close.\$seg" "remote.sha=\$head" "remote.log=\$log" remote.status=ok remote.rc=int:0 >/dev/null
+if [ "\${E2E_SEG_NO_END:-0}" != 1 ]; then
+  "$KERNEL/event.sh" remote.end "remote.kind=close.\$seg" "remote.sha=\$head" "remote.log=\$log" remote.status=ok remote.rc=int:0 >/dev/null
+fi
 cat "\$log"
 EOF
   cat > "$BIN/bench.sh" <<EOF
@@ -151,6 +174,12 @@ EOF
 }
 # every kernel call points at this round's fixture; the four commands inherit the same environment
 kenv() { env ROTATION_PROJECT_DIR="$REPO" ROTATION_CONF="$R/rotation.conf" ROTATION_PROJECT_SH="$R/project.sh" ROTATION_STATE_DIR="$STATE" "$@"; }
+# the same as the session whose id is $1 (empty = no session id, as outside Claude Code)
+senv() { local s=$1; shift; kenv env CLAUDE_CODE_SESSION_ID="$s" "$@"; }
+# a hook as Claude Code runs it: in the session's cwd — a subdirectory of the repository, which is also what
+# CLAUDE_PROJECT_DIR holds — with no ROTATION_PROJECT_DIR, so the root has to come from git
+henv() { ( cd "$REPO/crates/x" && env CLAUDE_PROJECT_DIR="$REPO/crates/x" ROTATION_CONF="$R/rotation.conf" ROTATION_PROJECT_SH="$R/project.sh" ROTATION_STATE_DIR="$STATE" "$@" ); }
+stop_payload() { printf '{"session_id":"s1","hook_event_name":"Stop","stop_hook_active":false}'; }
 
 # ── the round ───────────────────────────────────────────────────────────
 # round <name> <gate-records-end 1|0>
@@ -243,6 +272,24 @@ round() {
     out=$(kenv "$KERNEL/recover.sh" 2>&1); rc=$?
     expect_eq "$tag recover.sh after the close: IDLE (local jobs all ended, no probe configured)" "$(printf '%s\n' "$out" | tail -1)" "IDLE"
     expect_has "$tag recover.sh says no probe is configured" "$out" 'remote probe: ROTATION_REMOTE_PROBE_CMD not set'
+
+    # the Stop hook at the next turn ends: the intent trigger.sh left is consumed only when INV-1..5 are green
+    local rid
+    rid=$(cat "$REPO/.claude/autorun-intent" 2>/dev/null)
+    expect_has "$tag trigger.sh left the intent with the new id" "$rid" '^r-[0-9]+-[0-9a-f]{4}$'
+    echo stray > "$REPO/crates/x/stray.txt"
+    out=$(stop_payload | henv bash "$KERNEL/stop_hook.sh" 2>&1); rc=$?
+    expect_eq "$tag Stop hook with the intent pending and a dirty tree: exit 0" "$rc" 0
+    expect_has "$tag red: INV-2 names the dirty tree" "$out" '^INV-2 FAIL tree dirty: 1 entry$'
+    expect_has "$tag red: the intent is kept for the next turn end" "$out" "^stop_hook: rotation $rid blocked by INV check · intent kept$"
+    [ -f "$REPO/.claude/autorun-intent" ] && ok "$tag red: the intent file is still there" || bad "$tag red: the intent file is gone"
+    rm "$REPO/crates/x/stray.txt"
+    out=$(stop_payload | henv bash "$KERNEL/stop_hook.sh" 2>&1); rc=$?
+    expect_eq "$tag Stop hook with a clean tree: exit 0" "$rc" 0
+    expect_has "$tag green: INV-3 compares the handoff triple with the row trigger.sh wrote" "$out" '^INV-3 PASS current 12/0/1 >= prior 12/0/1$'
+    expect_has "$tag green: the intent is consumed" "$out" "^stop_hook: rotation $rid green · INV-1..5 pass · intent consumed$"
+    [ -e "$REPO/.claude/autorun-intent" ] && bad "$tag green: the intent file remains" || ok "$tag green: the intent file is gone"
+    [ -e "$REPO/crates/x/.claude" ] && bad "$tag the hook took CLAUDE_PROJECT_DIR for the root" || ok "$tag the hook ran from a subdirectory and used the git top level"
   else
     expect_eq "$tag trigger.sh self is blocked (exit 1)" "$rc" 1
     expect_has "$tag TRIG-8 FAIL names the missing gate.end" "$out" 'TRIG-8 FAIL substrateFiles=1 gateEnds=0 atHead=no missing=yes — .*no gate.end event belongs to round r-e2e-1; run the gate through ROTATION_GATE_CMD'
@@ -252,8 +299,131 @@ round() {
   fi
 }
 
+
+# ── the interrupted round ───────────────────────────────────────────────
+# The fixture's commits are a day old, so only what this section does counts as activity and nothing on
+# the main tree answers a remote.end by accident. ROTATION_WAKE_AFTER is 2 s here (conf-only key).
+interruption() {
+  local tag='[interrupted]' out rc cmd seg_log
+  E2E_WAKE_AFTER=2 GIT_COMMITTER_DATE="$(( $(date +%s) - 86400 )) +0000" setup_round interrupted
+  w() { senv sess-mgr "$KERNEL/watchdog.sh" --once "$@"; }
+  page() { senv "$1" "$KERNEL/recover.sh" 2>&1; }
+
+  # session lost: the executor can be continued only from the session that registered it
+  out=$(ROTATION_AGENT_ID=ag-x senv sess-mgr "$KERNEL/agent_log.sh" start rot-x rotation m "the round" 2>&1); rc=$?
+  expect_eq "$tag executor registered from session sess-mgr" "$rc" 0
+  expect_has "$tag manager.active carries the executor id and the session" "$(cat "$STATE/manager.active")" ' id=ag-x since=.* session=sess-mgr$'
+  out=$(page sess-mgr)
+  expect_eq "$tag recover.sh in the registering session: RESUME by id" "$(tail -1 <<<"$out")" "RESUME ag-x"
+  expect_has "$tag page: the session ids match" "$out" '^executor session: registered=sess-mgr current=sess-mgr → match$'
+  out=$(page sess-new)
+  expect_eq "$tag recover.sh in another session: RESPAWN, the executor is a leftover" "$(tail -1 <<<"$out")" "RESPAWN executor leftover=executor:rot-x(ag-x,mismatch)"
+  expect_has "$tag page: the mismatch" "$out" '^executor session: registered=sess-mgr current=sess-new → mismatch$'
+  expect_eq "$tag recover.sh without a session id: RESPAWN, no-session" "$(page '' | tail -1)" "RESPAWN executor leftover=executor:rot-x(ag-x,no-session)"
+  expect_eq "$tag --json carries the same action" \
+    "$(senv sess-new "$KERNEL/recover.sh" --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["action"], s["session"]["verdict"])')" \
+    "RESPAWN executor leftover=executor:rot-x(ag-x,mismatch) mismatch"
+
+  # executor silent: registered, then nothing — STALE once --stale seconds passed (1800 by default; 2 here)
+  out=$(w); rc=$?
+  expect_eq "$tag watchdog right after the registration: OK" "$rc" 0
+  expect_has "$tag OK line" "$out" '^OK '
+  sleep 2
+  out=$(w --stale 2); rc=$?
+  expect_eq "$tag no event since the registration for --stale seconds: STALE (11)" "$rc" 11
+  expect_has "$tag STALE line: the last sign of life is the registration" "$out" '^STALE no event and no commit for [0-9]+ s \(last: event rotation.start at .*\) · agent=ag-x$'
+
+  # remote job lost: a segment whose end nobody recorded
+  seg_log="$LOGS/rc-seg-$HEAD-plan.log"
+  out=$(E2E_SEG_NO_END=1 kenv "$KERNEL/adapter_run.sh" close-segment "$HEAD" plan "$VERDICTS/none.json" 2>&1); rc=$?
+  expect_eq "$tag a segment that ran without recording its end: adapter_run refuses the claim (64)" "$rc" 64
+  expect_has "$tag adapter_run names the missing event" "$out" 'without its record: event remote.end'
+  out=$(page sess-new)
+  expect_has "$tag page: the job is open, local (no host), its marker already in the log" "$out" "^  kind=close.plan sha=$HEAD log=$seg_log host=— started=.* terminal=seen$"
+  expect_has "$tag page: the command that records the end" "$out" "^    collect: bash $KERNEL/event.sh remote.end remote.kind=close.plan remote.sha=$HEAD remote.log=$seg_log remote.status=ok$"
+  expect_has "$tag leftover names the finished job" "$(tail -1 <<<"$out")" "remote:close.plan@$HEAD\(seen\)"
+  out=$(E2E_SEG_HANG=1 kenv "$KERNEL/adapter_run.sh" close-segment "$HEAD" checks "$VERDICTS/none.json" 2>&1); rc=$?
+  expect_eq "$tag a segment lost right after its start: refused too (64)" "$rc" 64
+  out=$(page sess-new)
+  expect_has "$tag page: a job with no marker in its log is still running (not-seen)" "$out" "^  kind=close.checks sha=$HEAD log=$LOGS/rc-seg-$HEAD-checks.log host=— started=.* terminal=not-seen$"
+  expect_not "$tag page: nothing to collect for the running job" "$out" 'remote.kind=close.checks'
+  expect_has "$tag remote jobs with no recorded end: 2" "$out" '^remote jobs with no recorded end: 2$'
+  cmd=$(sed -n 's/^    collect: //p' <<<"$out" | head -1)
+  kenv sh -c "$cmd" >/dev/null; rc=$?
+  expect_eq "$tag running the offered command records the end (exit 0)" "$rc" 0
+  out=$(page sess-new)
+  expect_not "$tag the collected job is closed" "$out" "remote:close.plan@"
+  expect_has "$tag the running job stays open" "$(tail -1 <<<"$out")" "remote:close.checks@$HEAD\(not-seen\)"
+  kenv "$KERNEL/event.sh" remote.end remote.kind=close.checks "remote.sha=$HEAD" "remote.log=$LOGS/rc-seg-$HEAD-checks.log" remote.status=abandoned >/dev/null
+  expect_has "$tag an abandoned end closes the running job" "$(page sess-new)" '^remote jobs with no recorded end: 0$'
+
+  # WAKE on a wait the executor recorded: the worker's agent.end arrives
+  ROTATION_AGENT_ID=ag-w1 kenv "$KERNEL/agent_log.sh" start w1 worker m "a task" >/dev/null
+  kenv "$KERNEL/event.sh" executor.waiting workers=list:w1 >/dev/null
+  w --wake 0 >/dev/null; rc=$?
+  expect_eq "$tag no WAKE while the awaited worker runs" "$rc" 0
+  kenv "$KERNEL/agent_log.sh" end w1 worker m "a task" >/dev/null
+  out=$(w --wake 0); rc=$?
+  expect_eq "$tag the worker ended: WAKE (10)" "$rc" 10
+  expect_has "$tag WAKE line names the worker and the executor" "$out" '^WAKE workers=w1 is done, executor silent [0-9]+ s since .* · agent=ag-x$'
+  expect_has "$tag page: the wait is satisfied" "$(page sess-mgr)" '^executor.waiting: .* for workers w1 · still waiting=yes · satisfied=yes$'
+
+  # WAKE without a wait on record: a remote.end followed by silence for ROTATION_WAKE_AFTER
+  kenv "$KERNEL/adapter_run.sh" preflight -q >/dev/null 2>&1
+  out=$(kenv "$KERNEL/adapter_run.sh" close-segment "$HEAD" plan "$VERDICTS/none.json" 2>&1); rc=$?
+  expect_eq "$tag a segment with its end on record (exit 0)" "$rc" 0
+  w >/dev/null; rc=$?
+  expect_eq "$tag no WAKE right after the remote.end" "$rc" 0
+  sleep 2
+  out=$(w); rc=$?
+  expect_eq "$tag remote.end and nothing from the executor for ROTATION_WAKE_AFTER: WAKE (10)" "$rc" 10
+  expect_has "$tag WAKE line counts from the remote.end" "$out" "^WAKE remote.end kind=close.plan sha=$HEAD log=$seg_log is on record and no executor event followed for [0-9]+ s since remote.end .* · agent=ag-x$"
+  expect_has "$tag page: the silence after the remote.end, the configured wait" "$(page sess-mgr)" "^last remote.end: .* kind=close.plan sha=$HEAD · executor moved since=no · wake after 2 s$"
+
+  # QUOTA: the reset passed and nothing followed; the manager continuing the executor answers it
+  kenv "$KERNEL/event.sh" quota.hit "quota.resets=int:$(( $(date +%s) - 1 ))" quota.agent=ag-x >/dev/null
+  out=$(w); rc=$?
+  expect_eq "$tag quota.hit whose reset passed, nothing after: QUOTA (12)" "$rc" 12
+  expect_has "$tag QUOTA line" "$out" '^QUOTA resets=.* passed, no event since .* · agent=ag-x$'
+  senv sess-mgr "$KERNEL/manager_log.sh" resume ag-x quota rot-x >/dev/null
+  w >/dev/null; rc=$?
+  expect_eq "$tag manager.resume recorded: no QUOTA, and the WAKE clock restarted" "$rc" 0
+  expect_has "$tag page: the quota is answered" "$(page sess-mgr)" '^quota.hit: .* agent=ag-x resets=.* · due=yes · events since=yes$'
+
+  # MULTI-EXECUTOR: a second running executor of the round
+  ROTATION_AGENT_ID=ag-y senv sess-mgr "$KERNEL/agent_log.sh" start rot-y rotation m "a second executor" >/dev/null
+  out=$(w); rc=$?
+  expect_eq "$tag two running executors: MULTI-EXECUTOR (15)" "$rc" 15
+  expect_has "$tag MULTI-EXECUTOR line names both" "$out" '^MULTI-EXECUTOR n=2 executors=rot-x\(ag-x\),rot-y\(ag-y\) · one rotation executor at a time, end the stale one$'
+  expect_has "$tag page flags more than one" "$(page sess-mgr)" '^running rotation executors: 2 — rot-x\(ag-x\), rot-y\(ag-y\) · MORE THAN ONE'
+  ROTATION_AGENT_STATUS=abandoned kenv "$KERNEL/agent_log.sh" end rot-y rotation m "a second executor" >/dev/null
+  w >/dev/null; rc=$?
+  expect_eq "$tag the second executor ended: no MULTI-EXECUTOR" "$rc" 0
+  expect_has "$tag page counts one executor again" "$(page sess-mgr)" '^running rotation executors: 1 — rot-x\(ag-x\)$'
+
+  # FOREIGN-COMMIT: the executor ended, the marker stays, and the main tree gets a commit
+  kenv "$KERNEL/agent_log.sh" end rot-x rotation m "the round" >/dev/null
+  [ -f "$STATE/manager.active" ] && ok "$tag the marker stays after a plain end: the round is still managed" || bad "$tag the marker vanished on a plain end"
+  w >/dev/null; rc=$?
+  expect_eq "$tag no FOREIGN-COMMIT: HEAD predates the executor's end" "$rc" 0
+  sleep 1
+  echo 4 >> "$REPO/crates/x/src/lib.rs"
+  g add -A && g commit -q -m 'chore: a commit while no executor runs'
+  out=$(w); rc=$?
+  expect_eq "$tag a commit after the executor ended: FOREIGN-COMMIT (14)" "$rc" 14
+  expect_has "$tag FOREIGN-COMMIT line: the count past prevHead and the reason" "$out" '^FOREIGN-COMMIT n=4 head=[0-9a-f]+ chore: a commit while no executor runs · HEAD committed at .*, after the last executor event .*, and no executor is running · agent=—$'
+  out=$(page sess-mgr)
+  expect_has "$tag page counts the foreign commits" "$out" '^foreign commits: 4 on the main tree with no running executor — HEAD committed at'
+  expect_has "$tag leftover names them" "$(tail -1 <<<"$out")" '^RESPAWN executor leftover=foreign-commits:4;'
+  ROTATION_MANAGER_IDLE=1 kenv "$KERNEL/agent_log.sh" end rot-x rotation m "the round" >/dev/null
+  w >/dev/null; rc=$?
+  expect_eq "$tag the manager went idle (marker removed): the check does not run" "$rc" 0
+  expect_has "$tag page says so" "$(page sess-mgr)" '^foreign commits: not checked \(no manager marker\)$'
+}
+
 round recorded 1
 round unrecorded 0
+interruption
 
 echo
 echo "e2e_self_test: $pass passed, $fail failed"

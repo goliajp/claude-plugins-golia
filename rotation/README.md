@@ -85,7 +85,7 @@ The full specification of each gate, the event kinds and their required fields, 
 bash <plugin dir>/tests/run_all.sh
 ```
 
-Seven self-tests (trigger gate, turn-end gate, close planner, recovery and watchdog, doctor, hooks, and one whole round end to end) against throwaway repositories and state; none reads any installed project. The marketplace's `.claude-plugin/test.sh rotation` runs them before a release.
+Seven self-tests (trigger gate, turn-end gate, close planner, recovery and watchdog, doctor, hooks, and one whole round end to end — including the Stop hook consuming the intent and a round interrupted in every way the recovery page and the watchdog know: a lost session, a lost remote job, WAKE, QUOTA, MULTI-EXECUTOR, FOREIGN-COMMIT) against throwaway repositories and state; none reads any installed project. The marketplace's `.claude-plugin/test.sh rotation` runs them before a release.
 
 ## Update
 
