@@ -72,7 +72,7 @@ An executor counts as running from its `agent.start` until an `agent.end` of the
 
 A carried stamp (see [close.md](close.md)) gains `carriedTo` (the HEAD it is held valid for), `carriedReason`, `carriedAt`; `headSha` is never changed. Readers compare shas by prefix, so older short-sha stamps still read.
 
-`ROTATION_STAMP_HISTORY` (default `<stamp dir>/stamps.jsonl`) gets one line per stamp written or carried (`carried: true`); the verdict's deltas are computed against the last history row of the same tool that measured a *different* commit.
+`ROTATION_STAMP_HISTORY` (default `<stamp dir>/stamps.jsonl`) gets one line per stamp written or carried (`carried: true`); the verdict's deltas are computed against the last history row of the same tool that measured a *different* commit. A row found wrong after the fact (a meter that measured less than it claimed) is withdrawn by appending `{"tool": "stamp.void", "ranAt": …, "void": [{"tool": …, "ranAt": …, "headSha": …}, …], "reason": …}`: the planner never takes a withdrawn row, or the void row itself, as a baseline. The row stays; only its use as a baseline ends.
 
 ## The sweep line and the axis reading
 
@@ -114,7 +114,7 @@ Tab-separated, `#` lines ignored, ten columns; `-` means none. The template's he
 | `sync_paths` | globs whose hit turns an async check sync for this close |
 | `needs` | a prerequisite row (stamp `-`) |
 | `show` | stamp keys the verdict lists, `,`-separated, dotted for nested |
-| `regress` | `<key>:down|up|nonzero` red when the reading moved that way against the previous stamp; `~` prefix makes it amber |
+| `regress` | `<key>:down|up|nonzero` red when the reading moved that way against the previous stamp; `~` prefix makes it amber. `<key>:each-up:<rel>[:<k>[:<ceiling>]]`: `<key>` is a map of lower-is-better positive readings, each entry one number or a list of repeats; only entries both stamps carry are judged. Two lists of at least three are compared on their medians and the move must also clear their noise — every new reading above every old one, and the log move above `k` × the larger log-spread (max/min) of the two lists; a shorter list judges nothing. An entry hits when its median rose by more than `rel` or crossed `ceiling` from below; the red line names it (`<check>: <key>.<entry> <old> → <new>`). An unknown op, or `each-up` without `rel`, is refused when the table is read (exit 2) |
 
 An empty table is a configuration error (exit 2). `ROTATION_CLOSE_CHECKS_OFF` drops named rows before planning; a name the table lacks is exit 2.
 
