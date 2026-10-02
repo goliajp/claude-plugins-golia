@@ -1,0 +1,64 @@
+#!/bin/bash
+# project.sh — the project's adapter for the rotation kernel: where the stamps
+# and verdicts live, how the sweep / axis readings are produced, how the gate,
+# pre-flight, close segment and bench are run, and what to clean up afterwards.
+#
+# Sourced by the kernel's lib.sh with PROJECT_DIR set to the git top level;
+# every value is exported so the kernel's children see it. Plain values
+# (thresholds, axes, stamp list, rules table path) belong in rotation.conf,
+# not here. `init.sh` copies this file once and never overwrites it.
+#
+# Required (doctor.sh fails without them):
+#   ROTATION_STAMP_DIR  ROTATION_VERDICT_DIR  ROTATION_SWEEP_LINE_CMD
+#   ROTATION_GATE_CMD  ROTATION_PREFLIGHT_CMD  ROTATION_CLOSE_SEGMENT_CMD  ROTATION_BENCH_CMD
+# Every *_CMD must name an executable file (or a bare command on PATH).
+
+# ── directories ────────────────────────────────────────────────────────
+# stamps: <name>-latest.json per check (the names in rotation.conf ROTATION_STAMPS), plus the history
+export ROTATION_STAMP_DIR="${ROTATION_STAMP_DIR:-$PROJECT_DIR/.dev/rotation/stamps}"
+export ROTATION_STAMP_HISTORY="${ROTATION_STAMP_HISTORY:-$ROTATION_STAMP_DIR/stamps.jsonl}"
+# verdicts (<rid>.verdict.md / .json) and the executors' close reports (<rid>.md)
+export ROTATION_VERDICT_DIR="${ROTATION_VERDICT_DIR:-$PROJECT_DIR/.dev/rotation/verdicts}"
+
+# ── readings (read-only commands) ──────────────────────────────────────
+# the sweep line: renders the sweep stamp's counters as one `sweep: head=<sha> …` line (TRIG-7 compares it
+# with the line the handoff pasted); exit 2 when there is no stamp
+export ROTATION_SWEEP_LINE_CMD="${ROTATION_SWEEP_LINE_CMD:-$PROJECT_DIR/.dev/rotation/bin/sweep_line.sh}"
+# the axis reading (TRIG-5's evidence that an axes review looked at the numbers): one line carrying `ran=`;
+# optional, but TRIG-5 fails on a long same-axis streak without it
+# export ROTATION_AXIS_READING_CMD="$PROJECT_DIR/.dev/rotation/bin/axis_line.sh"
+# whether that reading's comparator is current: exit 0 current · 1 stale · 2 unknown; optional
+# export ROTATION_AXIS_READING_FRESH_CMD="$PROJECT_DIR/.dev/rotation/bin/comparator_check.sh"
+
+# ── the four adapter commands (the kernel calls them only through adapter_run.sh) ──
+# contract (README "Adapter command contract"):
+#   gate           <sha> [options]                 prints `N pass / F fail / S skip`; records remote.start, gate.end, remote.end
+#   pre-flight     [-q] [options]                  prints `PREFLIGHT PASS` or `PREFLIGHT FAIL: …`; records preflight.end
+#   close segment  <head> <segment|plan> [verdict] records remote.start / remote.end (remote.kind=close.<segment>)
+#   bench          <sha> [segment ...]             records remote.start / remote.end per segment, writes the axis stamp
+# each must exit 2 on `--doctor-probe` without doing anything (doctor.sh calls it that way)
+export ROTATION_GATE_CMD="${ROTATION_GATE_CMD:-$PROJECT_DIR/.dev/rotation/bin/gate.sh}"
+export ROTATION_PREFLIGHT_CMD="${ROTATION_PREFLIGHT_CMD:-$PROJECT_DIR/.dev/rotation/bin/preflight.sh}"
+export ROTATION_CLOSE_SEGMENT_CMD="${ROTATION_CLOSE_SEGMENT_CMD:-$PROJECT_DIR/.dev/rotation/bin/close_segment.sh}"
+export ROTATION_BENCH_CMD="${ROTATION_BENCH_CMD:-$PROJECT_DIR/.dev/rotation/bin/bench.sh}"
+
+# ── optional hooks ─────────────────────────────────────────────────────
+# after the kernel appended a row or an event (a dashboard repack, say); must always exit 0
+# export ROTATION_AFTER_WRITE_CMD="$PROJECT_DIR/.dev/rotation/bin/repack.sh"
+# best-effort cleanup on the runner when a rotation closes (processes the executor may have left)
+# export ROTATION_REAP_REMOTE_CMD='ssh -o BatchMode=yes <runner> "pkill -f <pattern>; true"'
+
+# ── interruption recovery (recover.sh / watchdog.sh) ───────────────────
+# a project with no remote runner leaves all three unset: jobs recorded without a host are read locally
+# what is running on the runner, shown verbatim on the recover page
+# export ROTATION_REMOTE_PROBE_CMD="$PROJECT_DIR/.dev/rotation/bin/remote_probe.sh"
+# `<cmd> <log> <marker> [host]`: exit 0 marker seen in the remote log · 1 not seen · other = unknown
+# export ROTATION_REMOTE_GREP_CMD="$PROJECT_DIR/.dev/rotation/bin/remote_marker_seen.sh"
+# `<cmd> <kind> <sha> <log> <host> <rotationId>`: prints the commands that collect a finished job's results
+# export ROTATION_REMOTE_COLLECT_CMD="$PROJECT_DIR/.dev/rotation/bin/remote_collect_cmd.sh"
+
+# ── identity ───────────────────────────────────────────────────────────
+# the branch worktrees are measured against (default: the main tree's current branch)
+# export ROTATION_BASE_BRANCH=develop
+# the project name rows are filed under (default: the checkout's directory name)
+# export ROTATION_PROJECT_NAME=myproject

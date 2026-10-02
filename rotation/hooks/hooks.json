@@ -1,0 +1,49 @@
+{
+  "description": "rotation kernel hooks: the INV-1..5 gate at every turn end while a rotation intent is pending (Stop), kernel.path and the recovery page at session start (SessionStart), and the mechanical end-of-agent events for registered executors and workers (SubagentStop)",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stop_hook.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/session_start_hook.sh\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/session_start_hook.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/subagent_stop_hook.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
