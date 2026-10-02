@@ -35,7 +35,10 @@ Environment (set by recover.sh / watchdog.sh from lib.sh and the project adapter
                              A manager.resume after the remote.end restarts the clock; other manager.* events do not.
   ROTATION_WORKER_STALE      seconds (rotation.conf, default 1200): a non-executor agent of this round still registered
                              as running whose transcript has not been written for that long is `dead?` on the page
-                             and a WAKE for the watchdog. The transcript is <config>/projects/<project>/<session>/
+                             and a WAKE for the watchdog, until a manager.resume of this round records the manager
+                             relaying it to the executor: from then the page marks it relayed and the watchdog stays
+                             quiet about it, until its transcript is written again and then stops for that long once
+                             more. The transcript is <config>/projects/<project>/<session>/
                              subagents/agent-<id>.jsonl, <session> being the managerSession on the agent's start event,
                              else on the round's executor's (agents are nested under the session that started the
                              executor); with no session or id on record, or no such file, the state is unknown.
@@ -376,9 +379,12 @@ def transcript_state(agent, session, now):
             'session': session}
 
 
-def worker_states(agents, now):
+def worker_states(agents, now, events, round_ts):
     """every agent of this round still registered as running that is not the executor or the manager: the ones
-    the executor is waiting on. each gets its transcript state"""
+    the executor is waiting on. each gets its transcript state; a dead? one also gets relayedTs, the last
+    manager.resume of the round recorded once it was already dead? (transcript mtime + ROTATION_WORKER_STALE or
+    later), else None. a write after that resume moves the mtime past it, which clears it"""
+    resumes = [e.get('ts') or 0 for e in events if e.get('kind') == 'manager.resume' and (e.get('ts') or 0) >= round_ts]
     ex = executor_of(agents)
     rounds = [a for a in agents if a['role'] == 'rotation' and a['inRound'] and a.get('managerSession')]
     fallback = (ex or {}).get('managerSession') or (rounds[-1]['managerSession'] if rounds else None)
@@ -386,7 +392,10 @@ def worker_states(agents, now):
     for a in agents:
         if a['status'] != 'running' or not a['inRound'] or a['role'] in ('rotation', 'manager'):
             continue
-        a['transcript'] = transcript_state(a, a.get('managerSession') or fallback, now)
+        t = transcript_state(a, a.get('managerSession') or fallback, now)
+        if t['state'] == 'dead?':
+            t['relayedTs'] = max((r for r in resumes if r >= t['mtime'] + WORKER_STALE), default=None)
+        a['transcript'] = t
         out.append(a)
     return out
 
@@ -561,7 +570,7 @@ def build_scene(probe):
         'remotes': open_remotes(events, probe),
         'remoteEnd': remote_end_state(events, rnd['ts']),
         'waiting': waiting_state(events, probe), 'quota': quota_state(events, now),
-        'workers': worker_states(agents, now), 'workerStale': WORKER_STALE,
+        'workers': worker_states(agents, now, events, rnd['ts']), 'workerStale': WORKER_STALE,
         'probe': run_probe() if probe else None,
     }
     scene['action'] = decide(scene)
@@ -615,7 +624,9 @@ def print_scene(s):
           f"(ROTATION_WORKER_STALE={s['workerStale']} s) while it is still registered as running. Tell the executor: "
           f"continue it (SendMessage to {a['id']}, from session {t['session']}), or record its end "
           f"(ROTATION_AGENT_STATUS=abandoned agent_log.sh end {a['name']} {a['role']} {a.get('model') or '-'}) and dispatch "
-          f"its task again: {a.get('task') or '—'}" + (f" · worktree {a['worktree']}" if a.get('worktree') else ''))
+          f"its task again: {a.get('task') or '—'}" + (f" · worktree {a['worktree']}" if a.get('worktree') else '')
+          + (f" · relayed {iso(t['relayedTs'])} (manager.resume; no WAKE until it is written again and stops again)"
+             if t['relayedTs'] else ''))
     ex_names = ', '.join(f"{a['name']}({a.get('id') or 'no-id'})" for a in s['executors'])
     p(f"running rotation executors: {len(s['executors'])}" + (f" — {ex_names}" if ex_names else '')
       + (' · MORE THAN ONE: the protocol runs one executor at a time, end the stale one first' if len(s['executors']) > 1 else ''))
@@ -697,7 +708,9 @@ def watch(stale, wake, dirty_age, floor):
                         f"for {now - re_['refTs']} s since {since} · agent={who}")
 
     # a worker the executor is waiting on whose transcript stopped: the executor would wait for it forever
-    dead = [a for a in worker_states(agents, now) if a['transcript']['state'] == 'dead?']
+    # once relayed (a manager.resume after it went dead?) it stays quiet until its transcript moves and stops again
+    dead = [a for a in worker_states(agents, now, events, rnd['ts'])
+            if a['transcript']['state'] == 'dead?' and not a['transcript']['relayedTs']]
     if dead:
         names = ','.join(f"{a['name']}({a.get('id')},{a['transcript']['age']}s)" for a in dead)
         return 'WAKE', (f"WAKE dead? worker(s) {names}: transcript not written for ≥ {WORKER_STALE} s while still registered "
