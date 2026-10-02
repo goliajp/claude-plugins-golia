@@ -59,7 +59,7 @@ run() {
     ROTATION_REPO="$REPO" HARDEV_EVENTS_LOG="$EV" HARDEV_ROTATIONS_LOG="$ROT" ROTATION_BASE_BRANCH=develop \
     ROTATION_MANAGER_ACTIVE="$MARKER" CLAUDE_CODE_SESSION_ID="$SESSION" ROTATION_CONF="${CONF:-/dev/null}" \
     ROTATION_REMOTE_PROBE_CMD='echo probe-ok' ROTATION_REMOTE_GREP_CMD="${GREP_CMD:-$TMP/fake_grep.sh}" \
-    ROTATION_REMOTE_COLLECT_CMD="${COLLECT_CMD:-}" "$@"
+    ROTATION_REMOTE_COLLECT_CMD="${COLLECT_CMD:-}" ROTATION_CLAUDE_CONFIG_DIRS="$TMP/cfg-a:$TMP/cfg-b" "$@"
 }
 action() { run "$BIN/recover.sh" | tail -1; }
 watch() { run "$BIN/watchdog.sh" --once "$@"; }
@@ -588,6 +588,65 @@ expect_not "--no-probe: the marker is unknown, no command is offered" "$(COLLECT
 # the command printed is the one that closes the record: running it leaves nothing open
 run sh -c "$(printf '%s\n' "$out" | sed -n 's/^    collect: //p' | head -1)" >/dev/null
 expect_eq "running the offered command records the end" "$(action)" "RESPAWN executor leftover=remote:close.plan@abc(seen);remote:sweep@abc(not-seen)"
+
+# ── a worker registered as running whose transcript stopped (dead?) ───────
+# transcripts live in config dirs as <dir>/projects/<project>/<session>/subagents/agent-<id>.jsonl; the worker's
+# start event carries no session, so the round's executor's managerSession (sess-A) is where it is looked for
+tr_file() {  # tr_file <config dir> <session> <agent id> <seconds ago>
+  local f="$1/projects/-x-repo/$2/subagents/agent-$3.jsonl"
+  mkdir -p "$(dirname "$f")"; echo '{}' > "$f"
+  touch -t "$(date -r "$((NOW - $4))" +%Y%m%d%H%M.%S)" "$f"
+}
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 600 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+ev 500 agent.start "$(agent w9 worker '"id":"ag-w9"')"
+ev 400 executor.waiting '"waiting":{"workers":["w9"]}'
+tr_file "$TMP/cfg-b" sess-A ag-w9 1500
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "dead?: the agent line shows the transcript state and its age" "$out" "transcript=dead? (25 min since written)"
+expect_has "dead?: the page says what to do, with the id, the session and the task" "$out" "dead? w9: its transcript $TMP/cfg-b/projects/-x-repo/sess-A/subagents/agent-ag-w9.jsonl"
+expect_has "dead?: continue or end and re-dispatch" "$out" "continue it (SendMessage to ag-w9, from session sess-A)"
+expect_eq "--json carries the transcript state" \
+  "$(run "$BIN/recover.sh" --json --no-probe | python3 -c 'import json,sys; w=json.load(sys.stdin)["workers"]; print(w[0]["name"], w[0]["transcript"]["state"], w[0]["transcript"]["session"])')" "w9 dead? sess-A"
+out=$(watch); rc=$?
+expect_eq "watchdog: a dead? worker is a WAKE" "$rc" "10"
+expect_has "watchdog: WAKE names the worker and its id" "$out" "WAKE dead? worker(s) w9(ag-w9,"
+tr_file "$TMP/cfg-b" sess-A ag-w9 60
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "a transcript written a minute ago is alive" "$out" "transcript=alive (1 min since written)"
+expect_not "alive: no dead? line" "$out" "dead? w9"
+watch >/dev/null; expect_eq "watchdog: an alive worker is no WAKE" "$?" "0"
+# the threshold is the conf's
+tr_file "$TMP/cfg-b" sess-A ag-w9 1500
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WORKER_STALE=2000\n' > "$TMP/stale.conf"
+CONF="$TMP/stale.conf" watch >/dev/null; expect_eq "ROTATION_WORKER_STALE=2000 in the conf: 1500 s is not dead" "$?" "0"
+ROTATION_WORKER_STALE=60 watch >/dev/null 2>&1; expect_eq "ROTATION_WORKER_STALE from the environment is ignored (conf-only): 1500 s ≥ 1200 default is a WAKE" "$?" "10"
+# no transcript anywhere: unknown, never a WAKE
+rm -rf "$TMP/cfg-b"
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "no transcript found: unknown" "$out" "transcript=unknown (no transcript found)"
+watch >/dev/null; expect_eq "watchdog: an unknown transcript is no WAKE" "$?" "0"
+# the worker's own session on its start event wins over the executor's
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 600 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+ev 500 agent.start "$(agent w8 worker '"id":"ag-w8"'),\"managerSession\":\"sess-Z\""
+tr_file "$TMP/cfg-a" sess-Z ag-w8 1500
+tr_file "$TMP/cfg-a" sess-A ag-w8 10
+out=$(watch); rc=$?
+expect_eq "the worker's own managerSession is where its transcript is read (sess-Z: dead?)" "$rc" "10"
+# no session anywhere on record: unknown
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 600 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"')"
+ev 500 agent.start "$(agent w7 worker '"id":"ag-w7"')"
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "no managerSession on record: unknown" "$out" "transcript=unknown (no session on record)"
+# an ended worker is not judged
+ev 100 agent.end "$(agent w7 worker '"id":"ag-w7"')"
+expect_not "an ended worker has no transcript state" "$(run "$BIN/recover.sh" --no-probe)" "transcript="
+rm -rf "$TMP/cfg-a"
 
 echo
 echo "recover_self_test: $pass passed, $fail failed"

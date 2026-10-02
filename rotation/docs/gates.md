@@ -1,10 +1,10 @@
 # The two gates
 
-Two independent, mechanical gates with no model judgement in either. **TRIG-1..8** governs whether a self-initiated rotation may be *triggered* at all (`trigger.sh self` → `trig_gate.sh`, before any state is written). **INV-1..5** governs whether a triggered rotation may *proceed* (the `Stop` hook → `check.sh`, at every turn end while the intent is pending).
+Two independent, mechanical gates with no model judgement in either. **TRIG-1..9** governs whether a self-initiated rotation may be *triggered* at all (`trigger.sh self` → `trig_gate.sh`, before any state is written). **INV-1..5** governs whether a triggered rotation may *proceed* (the `Stop` hook → `check.sh`, at every turn end while the intent is pending).
 
 Both print one stable line per check — `TRIG-N STATE detail` / `INV-N STATE detail` — with STATE in PASS / FAIL / SKIP / WAIVED / OBSERVE, and summarise failures on stderr (`TRIG-FAILED: TRIG-x …` / `FAILED: INV-x …`). Exit 0 all pass, 1 a FAIL, 2 configuration (a missing conf, a non-integer threshold, an unknown mode value — never reported as a gate result).
 
-## TRIG-1..8 — may this round close?
+## TRIG-1..9 — may this round close?
 
 Every threshold is a `rotation.conf` key; the environment is cleared for those keys before the file is read, so a value cannot be slipped in from a shell. The effective values are written into the row the trigger appends.
 
@@ -18,12 +18,13 @@ Every threshold is a `rotation.conf` key; the environment is cleared for those k
 | **TRIG-6** | evidence? | every stamp named in `ROTATION_STAMPS`: `headSha` is a commit of this round, not `-dirty`, `verdict=ok` — or `carriedTo` equals exactly this HEAD (the planner's carry). A stamp without a verdict is red; an empty stamp list FAILs | `ROTATION_STAMPS`; `ROTATION_STAMP_DIR` (project.sh) |
 | **TRIG-7** | transcription? | the `sweep:` line in the handoff contains every token of the line `ROTATION_SWEEP_LINE_CMD` re-derives from the sweep stamp now. No command, no stamp, or a sweep whose own conservation is broken = FAIL, never SKIP | `ROTATION_SWEEP_STAMP`; `ROTATION_SWEEP_LINE_CMD` |
 | **TRIG-8** | coverage? | when files in the range hit any stamped check's trigger paths, the round must have a `gate.end` event (by `rotationId`, or by `gate.sha` inside the range). Same facts as the verdict's §1. `off` prints no line; `on` judges | `ROTATION_TRIG8_GATE_COVERAGE`, `ROTATION_CLOSE_RULES` |
+| **TRIG-9** | verdict? | the round's close verdict (`<ROTATION_VERDICT_DIR>/<rid>.verdict.json`, `<rid>` the round being closed) is filled and its `results.red` is empty; every red line is named in the FAIL. No verdict, or one never filled, FAILs (never SKIP). `off` prints no line; `on` judges | `ROTATION_TRIG9_VERDICT_RED`; `ROTATION_VERDICT_DIR` (project.sh) |
 
 Cold start (no previous self row): TRIG-1 and TRIG-2 SKIP, TRIG-3 and TRIG-6 look back `ROTATION_COLD_START_WINDOW` commits (default 25) as `HEAD~<window>..HEAD`. **The repository must have more commits than the window**, or that range is empty and TRIG-3 fails with "returned nothing"; a new repository sets the window to fewer than its commit count for the first round.
 
-What each gate owns, so that none duplicates another: 1 the floor (two measures because one of them is dilutable — a commit count can be met by splitting commits; a `closed:` entry has to name a sha and say what it closed), 2 both edges and the only exit, 3 the content, 4 the wording, 5 the allocation across axes, 6 the evidence on *this* source, 7 the transcript, 8 whether the gate ran at all. 6, 7 and 8 exist because 1–5 read only what the handoff *says*; each of "not run", "run on the previous HEAD" and "last round's number carried forward" had been invisible to every other gate.
+What each gate owns, so that none duplicates another: 1 the floor (two measures because one of them is dilutable — a commit count can be met by splitting commits; a `closed:` entry has to name a sha and say what it closed), 2 both edges and the only exit, 3 the content, 4 the wording, 5 the allocation across axes, 6 the evidence on *this* source, 7 the transcript, 8 whether the gate ran at all, 9 whether the close verdict it was handed is clean. 6, 7, 8 and 9 exist because 1–5 read only what the handoff *says*; each of "not run", "run on the previous HEAD" and "last round's number carried forward" had been invisible to every other gate.
 
-`trigger.sh manual` is the operator's override: it skips TRIG-1..8 and refuses without an interactive terminal on stdin (exit 3). `hook` and `daemon` are reserved sources and are not gated either; a model's shell has exactly one path, `self`.
+`trigger.sh manual` is the operator's override: it skips TRIG-1..9 and refuses without an interactive terminal on stdin (exit 3). `hook` and `daemon` are reserved sources and are not gated either; a model's shell has exactly one path, `self`.
 
 ## INV-1..5 — may this triggered round proceed?
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# rotation kernel — TRIG-1..8 pre-trigger gate.
+# rotation kernel — TRIG-1..9 pre-trigger gate.
 #
 # Run by `trigger.sh self` before it generates a rotation_id and writes
 # any state. Governs whether a self-initiated rotation is *legitimate*
@@ -42,6 +42,8 @@
 #                            Read from the gate.end events the gate command
 #                            records, not from the handoff. Off until the
 #                            project's rotation.conf turns it on.
+#   TRIG-9  the verdict    — is the round's filled close verdict free of red?
+#                            Off until rotation.conf turns it on.
 #
 # TRIG-6 (2026-09-09) closes the structural hole the other five share:
 # every one of them reads what the handoff *says*. TRIG-3 checks the
@@ -162,6 +164,12 @@ TRIG8_GATE_COVERAGE="${ROTATION_TRIG8_GATE_COVERAGE:-off}"
 case "$TRIG8_GATE_COVERAGE" in
   on|off) ;;
   *) echo "trig_gate: ROTATION_TRIG8_GATE_COVERAGE must be on or off, got '$TRIG8_GATE_COVERAGE' ($ROTATION_CONF_FILE)" >&2; exit 2 ;;
+esac
+# TRIG-9 is a judging change and ships off: `off` emits no line, `on` judges.
+TRIG9_VERDICT_RED="${ROTATION_TRIG9_VERDICT_RED:-off}"
+case "$TRIG9_VERDICT_RED" in
+  on|off) ;;
+  *) echo "trig_gate: ROTATION_TRIG9_VERDICT_RED must be on or off, got '$TRIG9_VERDICT_RED' ($ROTATION_CONF_FILE)" >&2; exit 2 ;;
 esac
 STAMP_DIR="${HARDEV_STAMP_DIR:-${ROTATION_STAMP_DIR:-}}"   # where the run stamps live
 if [ -z "$STAMP_DIR" ]; then
@@ -775,6 +783,58 @@ check_trig8() {
   emit TRIG-8 PASS "$cov (round $rid)"
 }
 
+# ── TRIG-9 — the close verdict has no red ─────────────────────────────
+# close_verdict_fill.sh writes the red list into the round's verdict
+# (`$ROTATION_VERDICT_DIR/<rid>.verdict.json`, results.red) and the close
+# sequence says red is handled before the round closes; nothing read it
+# back, so a round could close over a red verdict (2026-10-02: a clippy
+# count reading 1 → 22 closed red). This gate reads it: red > 0 → FAIL,
+# naming each red line. No verdict for the round, or one never filled, is
+# not evidence of a clean close either → FAIL (not SKIP). Off by default:
+# turning it on changes what the gate decides, so a project does that in a
+# gap between rounds (rotation.conf ROTATION_TRIG9_VERDICT_RED).
+check_trig9() {
+  [ "$TRIG9_VERDICT_RED" = on ] || return
+  local rid vf res rc
+  rid=$(autorun_current_rotation_id)
+  vf="${ROTATION_VERDICT_DIR:-}/$rid.verdict.json"
+  if [ -z "${ROTATION_VERDICT_DIR:-}" ] || [ -z "$rid" ] || [ ! -f "$vf" ]; then
+    emit TRIG-9 FAIL "no close verdict for round ${rid:-?} at $vf — plan and fill it (close_plan.sh, close_verdict_fill.sh)"
+    failed+=(TRIG-9)
+    return
+  fi
+  res=$(python3 - "$vf" <<'PY'
+import json, sys
+v = json.load(open(sys.argv[1]))
+r = v.get("results")
+if not isinstance(r, dict):
+    print("unfilled")
+    raise SystemExit(0)
+red, amber = r.get("red") or [], r.get("amber") or []
+print(f"{len(red)}\t{len(amber)}\t{str(v.get('headSha') or '?')[:9]}\t" + "; ".join(str(x) for x in red))
+PY
+)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    emit TRIG-9 FAIL "cannot read the close verdict $vf"
+    failed+=(TRIG-9)
+    return
+  fi
+  if [ "$res" = unfilled ]; then
+    emit TRIG-9 FAIL "close verdict $vf was never filled — run close_verdict_fill.sh $rid"
+    failed+=(TRIG-9)
+    return
+  fi
+  local red amber vhead items
+  IFS=$'\t' read -r red amber vhead items <<< "$res"
+  if [ "$red" -gt 0 ]; then
+    emit TRIG-9 FAIL "close verdict of $rid (head $vhead) has $red red: $items — handle each, re-fill, then trigger"
+    failed+=(TRIG-9)
+    return
+  fi
+  emit TRIG-9 PASS "close verdict of $rid (head $vhead): red=0 amber=$amber"
+}
+
 resolve_wall
 check_trig1
 check_trig2
@@ -784,6 +844,7 @@ check_trig5
 check_trig6
 check_trig7
 check_trig8
+check_trig9
 
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "TRIG-FAILED: ${failed[*]}" >&2

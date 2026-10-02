@@ -10,6 +10,9 @@
 #   WAKE           (exit 10)  what the last executor.waiting waits for has happened (its remote
 #                             marker is in the log, or every listed worker has an agent.end),
 #                             the executor has recorded nothing since, and --wake seconds passed
+#                             — or a worker of this round still registered as running has a
+#                             transcript not written for ROTATION_WORKER_STALE seconds (rotation.conf,
+#                             default 1200): the executor would wait for a dead agent forever
 #   STALE          (exit 11)  no sign of life for --stale seconds: the latest of the last event, the
 #                             main tree's HEAD commit and the newest commit in any worktree (and
 #                             never earlier than this watchdog's start)

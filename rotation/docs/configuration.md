@@ -18,6 +18,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_TRIG5_SAME_AXIS_MAX` | yes | — | consecutive same-axis rounds before `axes-review:` is required (template: 8) |
 | `ROTATION_TRIG5_BENCH_MAX_AGE_DAYS` | yes | — | how old the axis reading may be (template: 14) |
 | `ROTATION_TRIG8_GATE_COVERAGE` | no | `off` | `on` judges gate coverage; `off` prints no line. Switch on in a gap between rounds and note it in that round's handoff |
+| `ROTATION_TRIG9_VERDICT_RED` | no | `off` | `on`: the trigger FAILs while the round's filled close verdict has red, or has no filled verdict; `off` prints no line. Switch on in a gap |
 | `ROTATION_COLD_START_WINDOW` | no | 25 | commits TRIG-3 looks back on a cold start |
 | `ROTATION_AXES` | yes | — | the axis names, comma-separated |
 | `ROTATION_TRIGGER_SECTION` | no | `rotate-trigger` | extended regex matched against the text after `## ` |
@@ -28,6 +29,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_CLOSE_RULES` | yes | — | the rules table path (relative to the project root allowed); empty table = exit 2 |
 | `ROTATION_CLOSE_CHECKS_OFF` | no | — | rows dropped before planning, comma-separated; an unknown name = exit 2 |
 | `ROTATION_WAKE_AFTER` | no | 300 | seconds of executor silence after a `remote.end` before the watchdog's WAKE |
+| `ROTATION_WORKER_STALE` | no | 1200 | seconds a worker still registered as running may go without its transcript being written before it is `dead?` (recover page) and a WAKE (watchdog) |
 | `ROTATION_MESSAGES` | no | — | a `key=value` file overriding the verdict's human-read strings |
 
 ## project.sh
