@@ -112,4 +112,5 @@ claude plugin uninstall rotation
 
 ## Changelog
 
+- **0.1.1** — kernel 1.1.2. The trigger's reaper ends only the pids the round registered (`event.sh process.start process.pid=int:$$ …` / `process.end`), with a STALE guard for a pid no longer under the session; it no longer walks the Claude Code process tree, so the manager's watchdog and other agents' shells are never touched; in manager mode the remote reap is skipped, registered pids are reaped all the same. `close_verdict_fill.sh` judges a reading against the last stamp at or before the round's start (the verdict's `prevSha`) — never a mid-round stamp — and the results header names the baseline sha. Self-tests +14.
 - **0.1.0** — initial release: kernel 1.1.1 (trigger gate TRIG-1..8, turn-end gate INV-1..5, close planner and verdict, adapter command contract, recovery page, watchdog, manager events, doctor, stats), three hooks, `/rotation:init`, templates, the protocol documentation under `docs/`, the `rotation` and `rotation-manager` skills, seven self-tests.
