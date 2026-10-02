@@ -5,9 +5,9 @@
 # A throwaway repository, a throwaway state directory, a project.sh whose four
 # commands (gate / pre-flight / close segment / bench) are a few lines of bash
 # each — no runner and no host: every job is local and its log a local file —
-# and a copy of the kernel with its reaper stubbed (kill_stray_shells.sh walks
-# the real process tree of whatever session runs this test; it is the one piece
-# that cannot be pointed at a fixture). Everything else is the kernel as
+# and a copy of the kernel with its reaper stubbed (kill_stray_shells.sh ends
+# real processes registered in the real session that runs this test; it is the
+# one piece that cannot be pointed at a fixture). Everything else is the kernel as
 # installed. No project name, adapter directory, comparator or runner is read.
 #
 # The round, in the order the protocol runs it:

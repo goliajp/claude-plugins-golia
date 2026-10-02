@@ -1,47 +1,49 @@
 #!/bin/bash
 # kill_stray_shells.sh — rotation-close hard invariant (set by the operator,
-# 2026-08-02): when a rotation ends, EVERY child process this
-# Claude Code session spawned must be dead. No watcher, poller,
-# sleeper, or remote-wait shell may survive into the next rotation.
+# 2026-08-02): when a rotation ends, every child process the round
+# started must be dead. No watcher, poller, sleeper, or remote-wait shell
+# may survive into the next rotation.
 #
-# Mechanism: walk up from $$ to the owning `claude` process, then
-# enumerate its descendants. A Bash-tool shell is identified by the
-# `shell-snapshots` marker in its command line (every Bash tool
-# invocation wraps as `/bin/zsh -c source .../shell-snapshots/...`);
-# such a shell and its whole subtree are victims — EXCEPT the chain
-# this very script is running under, and EXCEPT a shell whose subtree
-# runs a watchdog.sh: the manager starts it through the same Bash
-# tool, so it carries the marker, and it is the one process meant to
-# live across a rotation close (2026-10-02: the reaper took it down,
-# exit 144, and the manager lost its wake-up; again when a kernel
-# installed under another directory name matched only its own path).
-# The kernel keeps no registry of spawned pids — catching the
-# unregistered is the point of walking the tree — so the exception is
-# by command line, any path ending in `/watchdog.sh`. Non-shell children of
-# claude (MCP servers, IDE helpers) are never touched.
+# Mechanism: the round registers the shells it starts —
+#   event.sh process.start process.pid=int:$$ process.what=<label>
+# at the top of a background command ($$ there is the Bash-tool shell, the
+# direct child of the Claude Code process), and process.end for one that
+# finished on its own. The reaper reads this round's registrations from the
+# events log and ends every registered pid still alive, with its subtree.
+# Nothing else is touched: a shell nobody registered is not the reaper's to
+# end. The earlier reaper walked the whole Claude Code process tree and ended
+# every Bash-tool shell under it; in manager mode the manager, the executor,
+# its workers and any harness agent share that one process, and on 2026-10-02
+# the walk took down the manager's watchdog (exit 144), another agent's
+# pre-flight chain and three workers' remote links.
 #
-# Exit 0 + "CLEAN" when nothing stray; exit 0 + KILL lines after
-# reaping, KEEP lines for the watchdog shells left alone. Exit 1 only
-# when no claude ancestor is found (not run from within a session —
-# refuse rather than guess).
+# Guards: a registered pid is ended only when it is alive and a descendant of
+# the Claude Code process this script runs under — a pid another process took
+# after the shell exited is reported STALE and left alone — and the chain this
+# script runs under is never a victim.
 #
-# Also best-effort runs the project's remote reap command
-# (ROTATION_REAP_REMOTE_CMD) — runner-side processes outlive dev-side
-# shells when an ssh link drops.
+# Manager mode (manager.active in the state directory): the process is shared,
+# so the project's remote reap command (ROTATION_REAP_REMOTE_CMD, a pattern
+# kill on the runner) is skipped — workers' remote jobs match the same
+# patterns. Registered pids are still reaped; they are this round's own.
+# Session mode runs the remote reap best-effort.
+#
+# Inputs (set by trigger.sh): ROTATION_STATE_DIR, ROTATION_EVENTS_LOG (default
+# <state>/events.jsonl; HARDEV_EVENTS_LOG wins), ROTATION_REAP_ROTATION_ID
+# (the round whose registrations count; empty = every registration in the log).
+#
+# Exit 0 + "CLEAN" when no registered process is alive; exit 0 + KILL lines
+# and a REAPED count otherwise; STALE lines for registrations that no longer
+# name a process of this session. Exit 1 only when no claude ancestor is
+# found (not run from within a session — refuse rather than guess).
 
 set -u
 
-# In manager mode every agent (the manager, the executor, its workers, harness
-# agents) runs its shells under one shared Claude process, so reaping by that
-# process tree kills shells this round does not own: the manager's watchdog,
-# other agents' background jobs and their ssh links to the runner. Skip the
-# reap (local and remote) while manager.active exists; stray shells there are
-# collected by PID by whoever started them.
 state_dir="${ROTATION_STATE_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)/.claude/rotation-state}"
-if [ -e "$state_dir/manager.active" ]; then
-  echo "SKIP: manager mode ($state_dir/manager.active): the Claude process is shared, nothing reaped"
-  exit 0
-fi
+events="${HARDEV_EVENTS_LOG:-${ROTATION_EVENTS_LOG:-$state_dir/events.jsonl}}"
+rid="${ROTATION_REAP_ROTATION_ID:-}"
+manager=0
+[ -e "$state_dir/manager.active" ] && manager=1
 
 me=$$
 ancestors=" $me "
@@ -61,6 +63,36 @@ if [ -z "$claude_pid" ]; then
   exit 1
 fi
 
+# this round's registrations: process.start pids without a process.end, as `<pid><TAB><what>`
+registered=$(python3 - "$events" "$rid" <<'PY'
+import json, os, sys
+path, rid = sys.argv[1], sys.argv[2]
+if not os.path.isfile(path):
+    sys.exit(0)
+live = {}
+for line in open(path, encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        e = json.loads(line)
+    except ValueError:
+        continue
+    if rid and e.get("rotationId") != rid:
+        continue
+    proc = e.get("process") if isinstance(e.get("process"), dict) else {}
+    pid = proc.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        continue
+    if e.get("kind") == "process.start":
+        live[pid] = proc.get("what") or ""
+    elif e.get("kind") == "process.end":
+        live.pop(pid, None)
+for pid, what in live.items():
+    print("%d\t%s" % (pid, what))
+PY
+)
+
 descendants() {
   local pid=$1 c
   for c in $(pgrep -P "$pid" 2>/dev/null); do
@@ -69,31 +101,25 @@ descendants() {
   done
 }
 
-killed=0
-# a watchdog, as it appears on a command line: `bash <some dir>/watchdog.sh`. Matched by file
-# name, not by this kernel's directory: the manager's watchdog may run from another install
-# of the kernel (a shim directory, an older copy) under the same session process
-watchdog_mark="/watchdog.sh"
-# Bash-tool shells are DIRECT children of claude carrying the
-# shell-snapshots marker; kill each such subtree except our own and
-# except the one(s) running the watchdog.
-for shell in $(pgrep -P "$claude_pid" 2>/dev/null); do
-  case "$ancestors" in *" $shell "*) continue ;; esac
-  cmdline=$(ps -p "$shell" -ww -o command= 2>/dev/null)
-  case "$cmdline" in
-    *shell-snapshots*) ;;
-    *) continue ;;
-  esac
-  subtree="$shell $(descendants "$shell")"
-  keep=0
-  for p in $subtree; do
-    case "$(ps -p "$p" -ww -o command= 2>/dev/null)" in *"$watchdog_mark"*) keep=1; break ;; esac
+under_session() {
+  local p=$1
+  while [ -n "$p" ] && [ "$p" != "0" ] && [ "$p" != "1" ]; do
+    [ "$p" = "$claude_pid" ] && return 0
+    p=$(ps -p "$p" -o ppid= 2>/dev/null | tr -d ' ')
   done
-  if [ "$keep" -eq 1 ]; then
-    echo "KEEP $shell: runs a watchdog.sh"
+  return 1
+}
+
+killed=0
+while IFS=$'\t' read -r pid what; do
+  [ -n "$pid" ] || continue
+  case "$ancestors" in *" $pid "*) continue ;; esac
+  kill -0 "$pid" 2>/dev/null || continue
+  if ! under_session "$pid"; then
+    echo "STALE $pid: registered as '$what' but not under claude pid $claude_pid, left alone"
     continue
   fi
-  for victim in $subtree; do
+  for victim in $pid $(descendants "$pid"); do
     case "$ancestors" in *" $victim "*) continue ;; esac
     line=$(ps -p "$victim" -ww -o command= 2>/dev/null | cut -c1-140)
     [ -z "$line" ] && continue
@@ -101,16 +127,20 @@ for shell in $(pgrep -P "$claude_pid" 2>/dev/null); do
     kill "$victim" 2>/dev/null
     killed=$((killed + 1))
   done
-done
+done <<EOF
+$registered
+EOF
 
-# project-side best-effort reap (the adapter's ROTATION_REAP_REMOTE_CMD; never blocks)
-if [ -n "${ROTATION_REAP_REMOTE_CMD:-}" ]; then
+if [ "$manager" -eq 1 ]; then
+  echo "SKIP remote reap: manager mode ($state_dir/manager.active): the Claude process is shared, only registered pids were reaped"
+elif [ -n "${ROTATION_REAP_REMOTE_CMD:-}" ]; then
+  # project-side best-effort reap (the adapter's ROTATION_REAP_REMOTE_CMD; never blocks)
   sh -c "$ROTATION_REAP_REMOTE_CMD" >/dev/null 2>&1 || true
 fi
 
 if [ "$killed" -eq 0 ]; then
-  echo "CLEAN: no stray shells under claude pid $claude_pid"
+  echo "CLEAN: no registered process of this round alive under claude pid $claude_pid"
 else
-  echo "REAPED $killed stray process(es) under claude pid $claude_pid"
+  echo "REAPED $killed registered process(es) under claude pid $claude_pid"
 fi
 exit 0

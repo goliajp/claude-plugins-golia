@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Self-test for recover.sh / watchdog.sh / event.sh / agent_log.sh ids,
-# and for kill_stray_shells.sh leaving the watchdog alone: a throwaway
+# and for kill_stray_shells.sh ending only registered pids: a throwaway
 # repository, hand-written events, fake probe commands and a throwaway
 # process tree. Nothing here reaches a remote host or the project's own logs.
 #
@@ -452,65 +452,89 @@ run "$BIN/event.sh" manager.start >/dev/null 2>&1; expect_eq "event.sh refuses a
 run "$BIN/event.sh" manager.pause managerSession=sess-A >/dev/null 2>&1; expect_eq "event.sh refuses an unknown manager kind" "$?" "2"
 expect_eq "refused manager events were not written" "$(wc -l < "$EV" | tr -d ' ')" "6"
 
-# ── kill_stray_shells.sh: a stray Bash-tool shell dies, the shell running the kernel's watchdog lives ──
-# A throwaway process tree whose root's comm contains "claude" (bash under a symlink named so;
-# the reaper walks up to the first such ancestor), with two Bash-tool-like shells (the
-# shell-snapshots marker on their command line) as its direct children. The copy of the reaper
-# sits in a directory named `kernel`, so its watchdog mark is `kernel/watchdog.sh`.
+# ── kill_stray_shells.sh: only the pids this round registered die; the watchdog and other agents' shells live ──
+# A throwaway process tree whose root's comm contains "claude" (bash under a symlink named so; the
+# reaper walks up to the first such ancestor). Under it, Bash-tool-like shells (the shell-snapshots
+# marker on their command line): one the executor registered (process.start with its pid in a
+# throwaway events log), one registered and then ended (process.end), one nobody registered (another
+# agent's), one registered under an earlier round's id, and one running a watchdog.sh. A sleeper
+# started outside the fake session is registered too: a pid that is not under the session is STALE.
 RT="$TMP/reaper"; mkdir -p "$RT/kernel"
 ln -s /bin/bash "$RT/claude-sim"
 printf '#!/bin/bash\nsleep 300\n' > "$RT/kernel/watchdog.sh"
 cp "$BIN/kill_stray_shells.sh" "$RT/kernel/"
+REV="$RT/events.jsonl"
+sleep 300 & outside=$!
 cat > "$RT/tree.sh" <<EOF
-/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & stray=\$!
+reg() { printf '{"at":"x","ts":$NOW,"kind":"%s","rotationId":"%s","head":"x","process":{"pid":%s,"what":"t"}}\n' "\$1" "\$3" "\$2" >> "$REV"; }
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & mine=\$!
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & ended=\$!
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & other=\$!
 /bin/zsh -c 'true shell-snapshots; bash $RT/kernel/watchdog.sh; :' >/dev/null 2>&1 & wd=\$!
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & lastround=\$!
+: > "$REV"
+reg process.start \$mine r-test
+reg process.start \$ended r-test; reg process.end \$ended r-test
+reg process.start $outside r-test
+reg process.start \$lastround r-old
 sleep 1
-bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper.out" 2>&1
+ROTATION_EVENTS_LOG="$REV" ROTATION_REAP_ROTATION_ID=r-test ROTATION_REAP_REMOTE_CMD="touch $RT/remote-reaped" \
+  bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper.out" 2>&1; echo "rc=\$?" > "$RT/reaper.rc"
 sleep 1
 alive() { kill -0 "\$1" 2>/dev/null && echo alive || echo dead; }
-echo "stray=\$(alive \$stray) watchdog=\$(alive \$wd)"
+echo "mine=\$(alive \$mine) ended=\$(alive \$ended) other=\$(alive \$other) watchdog=\$(alive \$wd) lastround=\$(alive \$lastround)"
 down() { local c; for c in \$(pgrep -P "\$1"); do down "\$c"; done; kill "\$1" 2>/dev/null; }
-down "\$stray"; down "\$wd"
+down "\$mine"; down "\$ended"; down "\$other"; down "\$wd"; down "\$lastround"
 EOF
 tree=$("$RT/claude-sim" "$RT/tree.sh" 2>/dev/null)
-expect_eq "reaper: the stray shell dies, the watchdog shell lives" "$tree" "stray=dead watchdog=alive"
-expect_has "reaper: the watchdog shell is reported KEEP" "$(cat "$RT/reaper.out")" "KEEP"
-expect_has "reaper: the stray is reported KILL" "$(cat "$RT/reaper.out")" "KILL"
-# the same, with the watchdog run from another install of the kernel (a different directory name):
-# the exception is by file name, not by this kernel's directory
-mkdir -p "$RT/other"; printf '#!/bin/bash\nsleep 300\n' > "$RT/other/watchdog.sh"
+expect_eq "reaper: the registered shell dies; the ended, the unregistered, the earlier round's and the watchdog shell live" \
+  "$tree" "mine=dead ended=alive other=alive watchdog=alive lastround=alive"
+expect_eq "reaper: KILL lines name the registered shell and its child only" "$(grep -c '^KILL ' "$RT/reaper.out")" "2"
+expect_has "reaper: the registered pid outside the session is STALE, not killed" "$(cat "$RT/reaper.out")" "STALE $outside"
+expect_eq "reaper: the sleeper outside the session is alive" "$(kill -0 "$outside" 2>/dev/null && echo alive || echo dead)" "alive"
+expect_has "reaper: reports the count" "$(cat "$RT/reaper.out")" "REAPED 2"
+expect_eq "reaper: exits 0" "$(cat "$RT/reaper.rc")" "rc=0"
+expect_eq "reaper: session mode runs the remote reap command" "$([ -e "$RT/remote-reaped" ] && echo ran || echo no)" "ran"
+kill "$outside" 2>/dev/null
+# manager mode: manager.active in the state directory. Registered pids are still this round's own and die;
+# the remote pattern reap is skipped (workers' remote jobs match the same patterns). An empty registry is CLEAN.
+mkdir -p "$RT/state-managed"; echo "rotation=r-x executor=e id=a since=t session=s" > "$RT/state-managed/manager.active"
+rm -f "$RT/remote-reaped"
 cat > "$RT/tree2.sh" <<EOF
-/bin/zsh -c 'true shell-snapshots; bash $RT/other/watchdog.sh; :' >/dev/null 2>&1 & wd=\$!
+reg() { printf '{"at":"x","ts":$NOW,"kind":"%s","rotationId":"%s","head":"x","process":{"pid":%s,"what":"t"}}\n' "\$1" "\$3" "\$2" >> "$REV"; }
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & mine=\$!
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & other=\$!
+/bin/zsh -c 'true shell-snapshots; bash $RT/kernel/watchdog.sh; :' >/dev/null 2>&1 & wd=\$!
+: > "$REV"
+reg process.start \$mine r-test
 sleep 1
-bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper2.out" 2>&1
+ROTATION_STATE_DIR="$RT/state-managed" ROTATION_EVENTS_LOG="$REV" ROTATION_REAP_ROTATION_ID=r-test ROTATION_REAP_REMOTE_CMD="touch $RT/remote-reaped" \
+  bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper2.out" 2>&1; echo "rc=\$?" > "$RT/reaper2.rc"
 sleep 1
-kill -0 "\$wd" 2>/dev/null && echo "watchdog=alive" || echo "watchdog=dead"
+alive() { kill -0 "\$1" 2>/dev/null && echo alive || echo dead; }
+echo "mine=\$(alive \$mine) other=\$(alive \$other) watchdog=\$(alive \$wd)"
+: > "$REV"
+ROTATION_STATE_DIR="$RT/state-managed" ROTATION_EVENTS_LOG="$REV" ROTATION_REAP_ROTATION_ID=r-test \
+  bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper3.out" 2>&1
+sleep 1
+echo "other=\$(alive \$other) watchdog=\$(alive \$wd)"
 down() { local c; for c in \$(pgrep -P "\$1"); do down "\$c"; done; kill "\$1" 2>/dev/null; }
-down "\$wd"
+down "\$mine"; down "\$other"; down "\$wd"
 EOF
 tree2=$("$RT/claude-sim" "$RT/tree2.sh" 2>/dev/null)
-expect_eq "reaper: a watchdog from another kernel directory lives too" "$tree2" "watchdog=alive"
-expect_has "reaper: that watchdog shell is reported KEEP" "$(cat "$RT/reaper2.out")" "KEEP"
-# manager mode: while manager.active exists in the state directory the reaper skips (exit 0), kills nothing
-mkdir -p "$RT/state-managed" "$RT/state-idle"; echo "rotation=r-x executor=e id=a since=t session=s" > "$RT/state-managed/manager.active"
-cat > "$RT/tree3.sh" <<EOF
-/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & stray=\$!
-sleep 1
-ROTATION_STATE_DIR="$RT/state-managed" bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper3.out" 2>&1; echo "rc=\$?" > "$RT/reaper3.rc"
-sleep 1
-kill -0 "\$stray" 2>/dev/null && echo "stray=alive" || echo "stray=dead"
-ROTATION_STATE_DIR="$RT/state-idle" bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper4.out" 2>&1
-sleep 1
-kill -0 "\$stray" 2>/dev/null && echo "stray=alive" || echo "stray=dead"
-down() { local c; for c in \$(pgrep -P "\$1"); do down "\$c"; done; kill "\$1" 2>/dev/null; }
-down "\$stray"
-EOF
-tree3=$("$RT/claude-sim" "$RT/tree3.sh" 2>/dev/null)
-expect_eq "reaper: manager.active present → the stray lives; absent → it dies" "$tree3" "$(printf 'stray=alive\nstray=dead')"
-expect_has "reaper: manager mode is reported SKIP" "$(cat "$RT/reaper3.out")" "SKIP: manager mode"
-expect_eq "reaper: manager mode exits 0" "$(cat "$RT/reaper3.rc")" "rc=0"
-expect_not "reaper: manager mode kills nothing" "$(cat "$RT/reaper3.out")" "KILL"
-expect_has "reaper: without manager.active the stray is KILLed as before" "$(cat "$RT/reaper4.out")" "KILL"
+expect_eq "reaper: manager mode — the registered shell dies, the other agent's shell and the watchdog live" \
+  "$tree2" "$(printf 'mine=dead other=alive watchdog=alive\nother=alive watchdog=alive')"
+expect_has "reaper: manager mode skips the remote reap and says so" "$(cat "$RT/reaper2.out")" "SKIP remote reap: manager mode"
+expect_eq "reaper: manager mode did not run the remote reap command" "$([ -e "$RT/remote-reaped" ] && echo ran || echo no)" "no"
+expect_eq "reaper: manager mode exits 0" "$(cat "$RT/reaper2.rc")" "rc=0"
+expect_has "reaper: an empty registry is CLEAN" "$(cat "$RT/reaper3.out")" "CLEAN: no registered process"
+expect_not "reaper: an empty registry kills nothing" "$(cat "$RT/reaper3.out")" "KILL"
+# the registration itself: event.sh accepts process.start / process.end with a pid and refuses them without
+run "$BIN/event.sh" process.start process.pid=int:4242 process.what=gate >/dev/null 2>&1; expect_eq "event.sh records process.start with a pid" "$?" "0"
+expect_eq "process.start row carries the pid" "$(tail -1 "$EV" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["kind"], r["process"]["pid"], r["process"]["what"])')" "process.start 4242 gate"
+run "$BIN/event.sh" process.end process.pid=int:4242 >/dev/null 2>&1; expect_eq "event.sh records process.end" "$?" "0"
+run "$BIN/event.sh" process.start process.what=gate >/dev/null 2>&1; expect_eq "event.sh refuses process.start without a pid" "$?" "2"
+run "$BIN/event.sh" process.start process.pid=4242 >/dev/null 2>&1; expect_eq "event.sh refuses a pid that is not int:" "$?" "2"
 
 # ── a job recorded without a host is local: its log is read here, the remote grep is never called ──
 # never.sh stands in for a remote grep that must not run (exit 7 = unknown, which would show as `(unknown)`)
