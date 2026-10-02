@@ -1,0 +1,57 @@
+# rotation.conf — the project's frozen configuration for the rotation kernel.
+# key=value, one per line; only ROTATION_* keys; paths may be relative to the
+# project root. These keys are read from this file only (the environment is
+# ignored for them); trigger.sh writes the effective values and this file's
+# sha256 into every rotations.jsonl row. Changing a threshold is changing this
+# file, and the change is visible in the rows that follow.
+# `init.sh` copies this file once and never overwrites it.
+
+# the kernel major this file is written for (lib.sh refuses a mismatch; `1.1` also records the minor, doctor warns on drift)
+ROTATION_CONF_KERNEL=1
+
+# TRIG-1: commits on the first-parent line since the last self rotation, and things named on `closed:`
+ROTATION_TRIG1_MIN_COMMITS=12
+ROTATION_TRIG1_MIN_CLOSED=3
+# TRIG-2: wall seconds since the last self rotation; past the cap TRIG-1 is waived
+ROTATION_TRIG2_MIN_WALL_SEC=1800
+ROTATION_TRIG2_MAX_WALL_SEC=18000
+# which wall TRIG-2 judges: trigger (since the last self trigger, idle gap included) | active (since the round's rotation.start)
+ROTATION_TRIG2_MEASURE=trigger
+# TRIG-1a (the commit floor) and TRIG-2 (wall) are rhythm thresholds: enforce (judge) | observe (compute, print and
+# record, do not block). A project without its own data starts in observe, runs ROTATION_BOOTSTRAP_ROUNDS rounds,
+# reads `stats.sh --suggest`, writes the suggested N and cap here and switches to enforce
+ROTATION_TRIG1A_MODE=observe
+ROTATION_TRIG2_MODE=observe
+# self rows `stats.sh --suggest` wants before it proposes N and the wall cap
+ROTATION_BOOTSTRAP_ROUNDS=20
+# TRIG-8: gate coverage — a round whose range touched a check's trigger paths must have a gate.end event;
+# off emits no line; on judges it (switch it on in a gap between rounds, and note the round in the handoff)
+ROTATION_TRIG8_GATE_COVERAGE=off
+# TRIG-5: consecutive same-axis rotations before an axes-review is required, and how old its reading may be
+ROTATION_TRIG5_SAME_AXIS_MAX=8
+ROTATION_TRIG5_BENCH_MAX_AGE_DAYS=14
+# commits TRIG-3 may look back on a cold start (no prior self row)
+ROTATION_COLD_START_WINDOW=25
+
+# the axes a rotation may serve (`axis:` line), comma-separated
+ROTATION_AXES=A,B,C,D,E
+# the handoff heading the gates read (extended regex on the text after `## `; kernel default `rotate-trigger`)
+# ROTATION_TRIGGER_SECTION=rotate-trigger
+# TRIG-4 phrases in addition to the kernel's English list; `;`-separated extended regexes
+# ROTATION_BLACKLIST_EXTRA=later maybe;when time allows
+
+# TRIG-6: the stamps that must be fresh at close (<name>-latest.json under ROTATION_STAMP_DIR), space-separated
+ROTATION_STAMPS=sweep
+# the stamp TRIG-5 reads the axis reading from, and the one TRIG-7 re-derives the sweep line from
+ROTATION_AXIS_STAMP=bench
+ROTATION_SWEEP_STAMP=sweep
+
+# the close planner's rules table (format: the header comment of the file itself)
+ROTATION_CLOSE_RULES=.claude/rotation/close_rules.tsv
+# rows of that table switched off (comma-separated check names): dropped before planning, in no verdict
+# ROTATION_CLOSE_CHECKS_OFF=
+# watchdog: seconds after a remote.end of this round with no executor event (and no commit) before WAKE;
+# a manager.resume restarts the clock. Kernel default 300
+ROTATION_WAKE_AFTER=300
+# the close planner's message table (the verdict's language); kernel default is English
+# ROTATION_MESSAGES=.claude/rotation/messages.conf
