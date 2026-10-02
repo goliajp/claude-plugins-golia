@@ -107,7 +107,7 @@
       "name": "rotation",
       "description": "Machine-governed session rotation for long autonomous runs: a trigger gate that releases a handover only on measured work, a turn-end invariant gate, a rules-table close planner with verdicts, interruption recovery and a watchdog over append-only jsonl state. Project-agnostic kernel; /rotation:init wires a project through project.sh, rotation.conf and four adapter commands.",
       "source": "./rotation",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "developer-tools",
       "tags": [
         "autorun",
