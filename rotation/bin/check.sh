@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hardev autorun pillar — INV-1..5 pre-act gate.
+# rotation kernel — INV-1..5 pre-act gate.
 #
 # Run by the Stop hook at every turn end while a rotation intent is
 # pending (.claude/autorun-intent): green consumes the intent, red keeps

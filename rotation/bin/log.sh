@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hardev autorun pillar — render rotations.jsonl as a readable table.
+# rotation kernel — render rotations.jsonl as a readable table.
 #
 # Usage:
 #   .claude/rotation/log.sh                  # all rotations, newest last
@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ ! -f "$ROTATIONS_LOG" ]; then
-  echo "hardev autorun: no rotations recorded yet ($ROTATIONS_LOG missing)"
+  echo "rotation: no rotations recorded yet ($ROTATIONS_LOG missing)"
   echo "  run .claude/rotation/trigger.sh to record the first one."
   exit 0
 fi
@@ -76,13 +76,13 @@ with open(path) as f:
             rows.append(json.loads(line))
         except json.JSONDecodeError:
             # Skip malformed lines; do not silently lose count.
-            sys.stderr.write(f"hardev autorun log: skipping malformed line: {line[:80]}...\n")
+            sys.stderr.write(f"rotation log: skipping malformed line: {line[:80]}...\n")
 
 if tail is not None:
     rows = rows[-tail:]
 
 if not rows:
-    print("hardev autorun: rotations.jsonl present but empty")
+    print("rotation: rotations.jsonl present but empty")
     sys.exit(0)
 
 def cell(v):
