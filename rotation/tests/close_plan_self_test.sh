@@ -33,6 +33,8 @@
 #                                          and a drop (198 → 190) ok; an unknown name in the switch → exit 2
 #  19  fill: a check planned to run whose stamp never reached HEAD → amber (never ok); a carried-by-plan
 #                                          check with an old stamp is not
+#  20  fill: the baseline is the last stamp at or before the round's start (prevSha), never a mid-round
+#                                          stamp; the section header names the baseline sha
 #
 # Everything runs against the fixture: ROTATION_PROJECT_DIR / ROTATION_CONF=/dev/null /
 # ROTATION_PROJECT_SH=/dev/null, so the installed project's conf and adapter are never read.
@@ -420,6 +422,40 @@ check "19n a planned run with no stamp at all is amber" "$out" "$rc" 0 'amber=1'
 printf '{"tool":"bench","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","headShaSource":"arg","verdict":"ok","medianVsBunAot":0.5}\n' "$H4" > "$TMP/stamps/bench-latest.json"
 out=$(run_fill r-test-1); rc=$?
 check "19r the stamp at HEAD clears it" "$out" "$rc" 0 'red=0 amber=0'
+
+# 20 — fill: the baseline is the round's start, never a mid-round stamp. Round B0..E2 with a mid commit M1:
+# history holds sweep at B0 (pass 100) and a mid-round sweep at M1 (pass 120, a lighter-load reading); the
+# final stamp at E2 reads 100 again. Against the mid-round stamp that is a regression; against the round's
+# start it is not — and the start is the baseline. 90 at the end is a regression against 100, not 120.
+B0="$(git -C "$REPO" rev-parse HEAD)"
+commit crates/alpha-core/src/lib.rs 'perf: mid-round'
+M1="$(git -C "$REPO" rev-parse HEAD)"
+commit docs/a.md 'docs: end of round'
+E2="$(git -C "$REPO" rev-parse HEAD)"
+mk_stamps "$E2"
+rm -f "$TMP/verdicts"/*
+: > "$TMP/events.jsonl"
+gate_end "$E2"
+printf '{"tool":"sweep","ranAt":"2026-10-01T00:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":100,"passTotal":120,"file":"x"}\n' "$B0" > "$TMP/stamps/stamps.jsonl"
+printf '{"tool":"sweep","ranAt":"2026-10-01T01:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":120,"passTotal":140,"file":"x"}\n' "$M1" >> "$TMP/stamps/stamps.jsonl"
+printf '{"tool":"sweep","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":100,"passTotal":120}\n' "$E2" > "$TMP/stamps/sweep-latest.json"
+out=$(run_plan "$B0" "$E2"); rc=$?
+check "20p plan over the round" "$out" "$rc" 0 'gate: substrateFiles=1 gateEnds=1 ok'
+out=$(run_fill r-test-1); rc=$?
+check "20 end equal to the round's start is not red, whatever a mid-round stamp read" "$out" "$rc" 0 'red=0 amber=0'
+prev_sha=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(next(c["result"]["previousSha"] for c in v["checks"] if c["name"]=="sweep"))' "$TMP/verdicts/r-test-1.verdict.json")
+[ "$prev_sha" = "$B0" ] && { echo "ok   20b the sweep baseline is the round's start, not the mid-round stamp"; pass=$(( pass + 1 )); } \
+  || { echo "FAIL 20b baseline sha: $prev_sha (want $B0, mid $M1)"; fail=$(( fail + 1 )); }
+grep -qF "baseline sha ${B0:0:9}" "$TMP/verdicts/r-test-1.verdict.md" \
+  && { echo "ok   20m section 3 header names the baseline sha"; pass=$(( pass + 1 )); } \
+  || { echo "FAIL 20m section 3 header"; grep -n 'Filled' "$TMP/verdicts/r-test-1.verdict.md"; fail=$(( fail + 1 )); }
+printf '{"tool":"sweep","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":90,"passTotal":120}\n' "$E2" > "$TMP/stamps/sweep-latest.json"
+out=$(run_fill r-test-1); rc=$?
+check "20r end below the round's start is red against the start's reading" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 100 → 90'
+# only a mid-round stamp in the history: nothing at or before the start to judge against, no regression line
+printf '{"tool":"sweep","ranAt":"2026-10-01T01:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":120,"passTotal":140,"file":"x"}\n' "$M1" > "$TMP/stamps/stamps.jsonl"
+out=$(run_fill r-test-1); rc=$?
+check "20n a history with only mid-round stamps gives no baseline and no red" "$out" "$rc" 0 'red=0 amber=0'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

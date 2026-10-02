@@ -5,8 +5,9 @@
 # For every check the verdict names, reads its <x>-latest.json stamp and the
 # stamp history, and writes into the verdict: whether it ran at HEAD, was
 # carried to HEAD, or is still pending; the readings the rules table lists
-# (`show`) with the delta against the last stamp of the same check that
-# measured a different commit; and the regressions the table defines
+# (`show`) with the delta against the baseline: the last stamp of the same
+# check that measured the round's start (the verdict's prevSha) or an earlier
+# commit — never a stamp taken mid-round; and the regressions the table defines
 # (`regress`): red stops the next rotation from closing, amber must be
 # attributed. A stamp without a `verdict` key is red (an unknown reading is
 # not a green one), and so is a range with substrate commits and no
