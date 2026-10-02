@@ -612,6 +612,36 @@ expect_eq "--json carries the transcript state" \
 out=$(watch); rc=$?
 expect_eq "watchdog: a dead? worker is a WAKE" "$rc" "10"
 expect_has "watchdog: WAKE names the worker and its id" "$out" "WAKE dead? worker(s) w9(ag-w9,"
+# a manager.resume recorded before the worker went dead? relays nothing: still a WAKE
+ev 400 manager.resume '"managerSession":"sess-A","manager":{"agent":{"id":"ag-ex"},"reason":"wake"}'
+watch >/dev/null; expect_eq "dead?: a manager.resume from before it went dead? is no relay, still a WAKE" "$?" "10"
+# the manager relays it (manager.resume after the WAKE): the page still says dead?, the watchdog stays quiet
+ev 100 manager.resume '"managerSession":"sess-A","manager":{"agent":{"id":"ag-ex"},"reason":"wake"}'
+watch >/dev/null; expect_eq "dead?: relayed by a manager.resume, no WAKE" "$?" "0"
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "relayed: the page still shows dead?" "$out" "dead? w9: its transcript"
+expect_has "relayed: the page says when it was relayed" "$out" "relayed $(date -u -r "$((NOW - 100))" +%Y-%m-%dT%H:%M:%SZ) (manager.resume"
+# another worker that went dead? after that resume was never relayed: a WAKE naming it alone
+ev 90 agent.start "$(agent w10 worker '"id":"ag-w10"')"
+tr_file "$TMP/cfg-b" sess-A ag-w10 1250
+out=$(watch); rc=$?
+expect_eq "relayed w9 + unrelayed dead? w10: a WAKE" "$rc" "10"
+expect_has "the WAKE names w10" "$out" "w10(ag-w10,"
+expect_not "the WAKE leaves out the relayed w9" "$out" "w9(ag-w9,"
+ev 80 agent.end "$(agent w10 worker '"id":"ag-w10"')"
+# written again after the resume, then silent for the threshold once more: a WAKE again
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 3400 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+ev 3350 agent.start "$(agent w9 worker '"id":"ag-w9"')"
+ev 2000 manager.resume '"managerSession":"sess-A","manager":{"agent":{"id":"ag-ex"},"reason":"wake"}'
+tr_file "$TMP/cfg-b" sess-A ag-w9 3300
+watch >/dev/null; expect_eq "relayed at 2000 s ago, not written since: no WAKE" "$?" "0"
+tr_file "$TMP/cfg-b" sess-A ag-w9 1300
+out=$(watch); rc=$?
+expect_eq "written after the resume, silent ≥ the threshold again: a WAKE" "$rc" "10"
+expect_has "the renewed WAKE names w9" "$out" "w9(ag-w9,"
+expect_not "the renewed dead? is not marked relayed" "$(run "$BIN/recover.sh" --no-probe)" "relayed "
 tr_file "$TMP/cfg-b" sess-A ag-w9 60
 out=$(run "$BIN/recover.sh" --no-probe)
 expect_has "a transcript written a minute ago is alive" "$out" "transcript=alive (1 min since written)"
