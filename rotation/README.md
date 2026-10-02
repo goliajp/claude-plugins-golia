@@ -1,8 +1,24 @@
 # rotation
 
-Machine-governed session rotation for long autonomous Claude Code runs. A round of work ends with a handover only when a gate of measured facts (commits, wall time, fresh check stamps, a gate that actually ran) says so; the next session starts from an archived handoff; the close is planned from a rules table and written up as a verdict; an interrupted round is recovered from append-only event logs rather than from memory. First run for several hundred rounds on a compiler project before it was packaged as a plugin.
+Machine-governed session rotation for long autonomous Claude Code runs. A round of work ends with a handover only when a gate of measured facts says so — enough commits, a plausible duration, fresh check stamps from this round's source, a gate that actually ran; the next session starts from an archived handoff; the close is planned from a rules table and written up as a verdict; an interrupted round is recovered from append-only event logs rather than from memory. Run for several hundred rounds on a compiler project before it was packaged as a plugin.
 
-The kernel knows no project. A project plugs in through three files it owns (`project.sh`, `rotation.conf`, `close_rules.tsv`) and four adapter commands (gate, pre-flight, close segment, bench) that it writes.
+The kernel knows no project. A project plugs in through three files it owns (`project.sh`, `rotation.conf`, `close_rules.tsv`) and four adapter commands (gate, pre-flight, close segment, bench) that it writes to a fixed contract.
+
+## Documentation
+
+| Read | For |
+|---|---|
+| [docs/protocol.md](docs/protocol.md) | scope and non-goals, the three roles, the five properties and what holds each up, where files live |
+| [docs/data.md](docs/data.md) | the data contract: `rotations.jsonl`, `events.jsonl`, stamps, the handoff's trigger section, the rules table, the verdict |
+| [docs/gates.md](docs/gates.md) | the trigger gate TRIG-1..8 (every threshold as its `rotation.conf` key) and the turn-end gate INV-1..5 |
+| [docs/close.md](docs/close.md) | the close: plan, run, carry, fill, release forms |
+| [docs/roles.md](docs/roles.md) | the manager's loop, red lines, watchdog table and report checks; the executor's duties and report; workers |
+| [docs/recovery.md](docs/recovery.md) | `recover.sh`, `watchdog.sh`, the hooks, the reaper, and the cross-session facts the protocol is written around |
+| [docs/configuration.md](docs/configuration.md) | every `rotation.conf` key and `project.sh` variable; the adapter command contract |
+| [docs/adoption.md](docs/adoption.md) | install → init → configure → doctor → observe mode → `stats.sh --suggest` → enforce; measuring with `stats.sh --effect` |
+| [docs/history.md](docs/history.md) | appendix: how the first adopter's thresholds were arrived at, the incidents behind each gate, retired routes |
+
+Two skills load the protocol into a session: `rotation` (for the session or subagent that executes a round) and `rotation-manager` (for the session that manages rounds). Both point back at `docs/`.
 
 ## Install
 
@@ -26,7 +42,7 @@ In a session whose working directory is inside the project's git repository, run
 | Path | What |
 |---|---|
 | `.claude/rotation/kernel.path` | the plugin's install root; rewritten by the SessionStart hook at every session start, so a plugin update is picked up without editing anything |
-| `.claude/rotation/<script>` | two-line shims for every kernel entry point (`trigger.sh`, `doctor.sh`, `recover.sh`, `watchdog.sh`, `agent_log.sh`, `event.sh`, `close_plan.sh`, …): `exec "$(cat kernel.path)/bin/<script>" "$@"`. Documents and adapter scripts keep calling `.claude/rotation/<script>`; `lib.sh` is a one-line source shim for scripts that source the kernel's helpers |
+| `.claude/rotation/<script>` | two-line shims for every kernel entry point (`trigger.sh`, `doctor.sh`, `recover.sh`, `watchdog.sh`, `agent_log.sh`, `event.sh`, `close_plan.sh`, …): `exec "$(cat kernel.path)/bin/<script>" "$@"`. Documents and adapter scripts keep calling `.claude/rotation/<script>`; `lib.sh` is a one-line source shim |
 | `.claude/rotation/project.sh` | from `templates/project.sh.example`, written once, never overwritten: directories and the adapter commands |
 | `.claude/rotation/rotation.conf` | from `templates/rotation.conf.example`, written once: thresholds, axes, stamp list, switches |
 | `.claude/rotation/close_rules.tsv` | from `templates/close_rules.tsv.example`, written once: the close planner's rules table |
@@ -34,15 +50,13 @@ In a session whose working directory is inside the project's git repository, run
 
 Without Claude: `CLAUDE_PLUGIN_ROOT=<plugin dir> bash <plugin dir>/bin/init.sh` from inside the repository does the same. `--force` rewrites the shims and `kernel.path`; it never touches the three project files.
 
-Then edit `project.sh` and `rotation.conf`, write the adapter commands they name, and run the doctor.
-
-## Doctor
+Then edit `project.sh` and `rotation.conf`, write the adapter commands they name ([docs/configuration.md](docs/configuration.md); a complete minimal adapter is in [docs/adoption.md](docs/adoption.md)), and run the doctor:
 
 ```
 bash .claude/rotation/doctor.sh
 ```
 
-One line per check, `PASS|FAIL|WARN <item> <detail>`; last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256 prefix>` or `DOCTOR FAIL n=<count>`. It checks that `rotation.conf` parses and is written for this kernel's major (a differing minor is a WARN), the thresholds are integers and the mode keys legal, the axes / stamps / sweep stamp are named, `project.sh` sources and sets the seven required variables, every `ROTATION_*_CMD` is executable, the four heavy commands reject `--doctor-probe` with exit 2 without doing anything, the sweep line and axis reading have the right shape, the state / stamp / verdict directories are writable, the rules table parses and is not empty, at most one rotation executor is registered as running, and the repository and base branch exist. Run it after adopting and after every plugin update; a `DOCTOR FAIL` means do not start a round.
+Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256 prefix>` means the project can start a round; every `FAIL` line names what to fix.
 
 ## What runs when
 
@@ -67,17 +81,9 @@ One line per check, `PASS|FAIL|WARN <item> <detail>`; last line `DOCTOR PASS ker
 
 A project that has not run `/rotation:init` is untouched by all three: no `.claude/rotation/`, no intent, no registered agents, nothing written.
 
-## Contract in brief
+## Exit codes
 
-- **Code / configuration / state are three things.** Code is the plugin. Configuration is the project's `project.sh` (commands and directories, sourced) and `rotation.conf` (plain `key=value`, read from the file only — the environment is cleared for its keys first). State is `.claude/rotation-state/`, append-only jsonl; replacing the kernel never touches it.
-- **Every rotations.jsonl row carries the kernel version, the conf's sha256 and the effective thresholds**; changing a threshold is changing the file, visible in the rows that follow. `ROTATION_CONF_KERNEL` names the kernel major the conf was written for; a mismatch is a configuration error (exit 2), not a gate result.
-- **Empty things do not pass**: an empty stamp list fails TRIG-6, a missing sweep stamp fails TRIG-7, an unconfigured axis reading fails TRIG-5 on a long same-axis streak, an empty rules table is exit 2, a substrate range with no `gate.end` is red.
-- **Adapter commands put their claim on record.** gate prints `N pass / F fail / S skip` and records `remote.start`, `gate.end`, `remote.end`; pre-flight prints `PREFLIGHT PASS` and records `preflight.end`; close segment and bench record `remote.start` / `remote.end`. `remote.host` may be empty: the job ran locally and its log is a local file, so a project with no remote runner configures no probe commands at all. Each command must exit 2 on `--doctor-probe` without doing anything.
-- **One executor per round.** `agent_log.sh start <name> rotation` needs `ROTATION_AGENT_ID`; a second running executor is `MULTI-EXECUTOR` (exit 15). An executor can be continued by `SendMessage` only from the session that spawned it (or its `--resume`), so `recover.sh` offers `RESUME` only when the recorded manager session equals the current `CLAUDE_CODE_SESSION_ID`; otherwise `RESPAWN`.
-- **Calibrate before enforcing.** A new project sets `ROTATION_TRIG1A_MODE` / `ROTATION_TRIG2_MODE=observe`, runs `ROTATION_BOOTSTRAP_ROUNDS` rounds, reads `stats.sh --suggest`, writes the suggested commit floor and wall cap into the conf, and switches to `enforce`.
-- **Exit codes**: `trig_gate.sh` 0 / 1 FAIL / 2 configuration; `trigger.sh` 0 / 1 blocked / 2 usage or configuration / 3 `manual` without a terminal; `close_plan.sh` 0 / 2; `adapter_run.sh` the command's own / 2 not registered / 64 claim without record; `doctor.sh` 0 / 1 / 2; `watchdog.sh` 10–15 as above.
-
-The full specification of each gate, the event kinds and their required fields, and the verdict format are in the header comments of the scripts in `bin/`; `templates/` holds the executor prompt and the manager playbook with the project's values as `{{…}}` placeholders.
+Scripts print their usage on a wrong argument count or an unknown option (exit 2); none takes `--help`. `trig_gate.sh` 0 / 1 FAIL / 2 configuration · `trigger.sh` 0 / 1 blocked / 2 usage or configuration / 3 `manual` without a terminal · `check.sh` 0 / 1 / 2 · `close_plan.sh` 0 / 2 · `adapter_run.sh` the command's own / 2 not registered / 64 claim without record · `doctor.sh` 0 / 1 / 2 · `watchdog.sh` 10–15 as above, 0 only with `--once` · `recover.sh` 0 / 2 · `agent_log.sh`, `manager_log.sh`, `event.sh` 0 / 2.
 
 ## Tests
 
@@ -85,7 +91,7 @@ The full specification of each gate, the event kinds and their required fields, 
 bash <plugin dir>/tests/run_all.sh
 ```
 
-Seven self-tests (trigger gate, turn-end gate, close planner, recovery and watchdog, doctor, hooks, and one whole round end to end — including the Stop hook consuming the intent and a round interrupted in every way the recovery page and the watchdog know: a lost session, a lost remote job, WAKE, QUOTA, MULTI-EXECUTOR, FOREIGN-COMMIT) against throwaway repositories and state; none reads any installed project. The marketplace's `.claude-plugin/test.sh rotation` runs them before a release.
+Seven self-tests (trigger gate, turn-end gate, close planner, recovery and watchdog, doctor, hooks, and one whole round end to end — including the Stop hook consuming the intent and a round interrupted in every way the recovery page and the watchdog know) against throwaway repositories and state; none reads any installed project.
 
 ## Update
 
@@ -106,4 +112,4 @@ claude plugin uninstall rotation
 
 ## Changelog
 
-- **0.1.0** — initial release: kernel 1.1.1 (trigger gate TRIG-1..8, turn-end gate INV-1..5, close planner and verdict, adapter command contract, recovery page, watchdog, manager events, doctor, stats), three hooks, `/rotation:init`, templates, seven self-tests.
+- **0.1.0** — initial release: kernel 1.1.1 (trigger gate TRIG-1..8, turn-end gate INV-1..5, close planner and verdict, adapter command contract, recovery page, watchdog, manager events, doctor, stats), three hooks, `/rotation:init`, templates, the protocol documentation under `docs/`, the `rotation` and `rotation-manager` skills, seven self-tests.
