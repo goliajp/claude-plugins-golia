@@ -12,7 +12,9 @@
 #                             the executor has recorded nothing since, and --wake seconds passed
 #                             — or a worker of this round still registered as running has a
 #                             transcript not written for ROTATION_WORKER_STALE seconds (rotation.conf,
-#                             default 1200): the executor would wait for a dead agent forever
+#                             default 1200): the executor would wait for a dead agent forever. A
+#                             manager.resume recorded after the worker went dead? silences it until its
+#                             transcript is written again and then stops for that long once more
 #   STALE          (exit 11)  no sign of life for --stale seconds: the latest of the last event, the
 #                             main tree's HEAD commit and the newest commit in any worktree (and
 #                             never earlier than this watchdog's start)
