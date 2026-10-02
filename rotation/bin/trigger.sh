@@ -79,7 +79,7 @@ fi
 # polling a pattern that never appears ran 6h into the next rotation
 # because the ps-based audit truncated its command line; this reaper walks
 # the process tree instead.
-"$SCRIPT_DIR/kill_stray_shells.sh" || {
+ROTATION_STATE_DIR="$STATE_DIR" "$SCRIPT_DIR/kill_stray_shells.sh" || {
   echo "trigger.sh: kill_stray_shells.sh FAILED — rotation close aborted" >&2
   exit 1
 }

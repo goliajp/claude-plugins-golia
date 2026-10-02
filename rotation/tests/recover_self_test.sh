@@ -422,7 +422,7 @@ run "$BIN/manager_log.sh" start >/dev/null; expect_eq "manager_log.sh start" "$?
 run "$BIN/manager_log.sh" spawn ag-1 rotation-1 >/dev/null; expect_eq "manager_log.sh spawn" "$?" "0"
 run "$BIN/manager_log.sh" resume ag-1 quota >/dev/null; expect_eq "manager_log.sh resume" "$?" "0"
 run "$BIN/manager_log.sh" verify 1=pass 2=pass 3=fail 4=pass >/dev/null; expect_eq "manager_log.sh verify" "$?" "0"
-run "$BIN/manager_log.sh" stop takagi-stop >/dev/null; expect_eq "manager_log.sh stop" "$?" "0"
+run "$BIN/manager_log.sh" stop user-stop >/dev/null; expect_eq "manager_log.sh stop" "$?" "0"
 shape=$(python3 - "$EV" <<'PY'
 import json, sys
 rows = [json.loads(l) for l in open(sys.argv[1])]
@@ -436,7 +436,7 @@ PY
 expect_eq "the five kinds in order" "$(printf '%s\n' "$shape" | sed -n 1p)" "manager.start manager.spawn manager.resume manager.verify manager.stop"
 expect_eq "every manager event carries the session" "$(printf '%s\n' "$shape" | sed -n 2p)" "sess-A sess-A sess-A sess-A sess-A"
 expect_eq "spawn / resume carry the agent and the reason" "$(printf '%s\n' "$shape" | sed -n 3p)" "ag-1 rotation-1 ag-1 False quota"
-expect_eq "verify carries every check, the failed list and the overall result" "$(printf '%s\n' "$shape" | sed -n 4p)" "fail ['3'] fail 4 takagi-stop"
+expect_eq "verify carries every check, the failed list and the overall result" "$(printf '%s\n' "$shape" | sed -n 4p)" "fail ['3'] fail 4 user-stop"
 SESSION=
 run "$BIN/manager_log.sh" start >/dev/null
 expect_eq "manager.start outside a session writes managerSession null" \
@@ -476,6 +476,41 @@ tree=$("$RT/claude-sim" "$RT/tree.sh" 2>/dev/null)
 expect_eq "reaper: the stray shell dies, the watchdog shell lives" "$tree" "stray=dead watchdog=alive"
 expect_has "reaper: the watchdog shell is reported KEEP" "$(cat "$RT/reaper.out")" "KEEP"
 expect_has "reaper: the stray is reported KILL" "$(cat "$RT/reaper.out")" "KILL"
+# the same, with the watchdog run from another install of the kernel (a different directory name):
+# the exception is by file name, not by this kernel's directory
+mkdir -p "$RT/other"; printf '#!/bin/bash\nsleep 300\n' > "$RT/other/watchdog.sh"
+cat > "$RT/tree2.sh" <<EOF
+/bin/zsh -c 'true shell-snapshots; bash $RT/other/watchdog.sh; :' >/dev/null 2>&1 & wd=\$!
+sleep 1
+bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper2.out" 2>&1
+sleep 1
+kill -0 "\$wd" 2>/dev/null && echo "watchdog=alive" || echo "watchdog=dead"
+down() { local c; for c in \$(pgrep -P "\$1"); do down "\$c"; done; kill "\$1" 2>/dev/null; }
+down "\$wd"
+EOF
+tree2=$("$RT/claude-sim" "$RT/tree2.sh" 2>/dev/null)
+expect_eq "reaper: a watchdog from another kernel directory lives too" "$tree2" "watchdog=alive"
+expect_has "reaper: that watchdog shell is reported KEEP" "$(cat "$RT/reaper2.out")" "KEEP"
+# manager mode: while manager.active exists in the state directory the reaper skips (exit 0), kills nothing
+mkdir -p "$RT/state-managed" "$RT/state-idle"; echo "rotation=r-x executor=e id=a since=t session=s" > "$RT/state-managed/manager.active"
+cat > "$RT/tree3.sh" <<EOF
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & stray=\$!
+sleep 1
+ROTATION_STATE_DIR="$RT/state-managed" bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper3.out" 2>&1; echo "rc=\$?" > "$RT/reaper3.rc"
+sleep 1
+kill -0 "\$stray" 2>/dev/null && echo "stray=alive" || echo "stray=dead"
+ROTATION_STATE_DIR="$RT/state-idle" bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper4.out" 2>&1
+sleep 1
+kill -0 "\$stray" 2>/dev/null && echo "stray=alive" || echo "stray=dead"
+down() { local c; for c in \$(pgrep -P "\$1"); do down "\$c"; done; kill "\$1" 2>/dev/null; }
+down "\$stray"
+EOF
+tree3=$("$RT/claude-sim" "$RT/tree3.sh" 2>/dev/null)
+expect_eq "reaper: manager.active present → the stray lives; absent → it dies" "$tree3" "$(printf 'stray=alive\nstray=dead')"
+expect_has "reaper: manager mode is reported SKIP" "$(cat "$RT/reaper3.out")" "SKIP: manager mode"
+expect_eq "reaper: manager mode exits 0" "$(cat "$RT/reaper3.rc")" "rc=0"
+expect_not "reaper: manager mode kills nothing" "$(cat "$RT/reaper3.out")" "KILL"
+expect_has "reaper: without manager.active the stray is KILLed as before" "$(cat "$RT/reaper4.out")" "KILL"
 
 # ── a job recorded without a host is local: its log is read here, the remote grep is never called ──
 # never.sh stands in for a remote grep that must not run (exit 7 = unknown, which would show as `(unknown)`)
