@@ -45,6 +45,7 @@ One line per event: `{"at","ts","kind","rotationId","head", …}` plus the kind'
 | `gate.end` | `gate{sha,pass,fail,skip,log}`; `host` optional. A `gate.end` for a log also closes that log's `remote.start` | the project's gate command — **the only writer** |
 | `executor.waiting` | `remote{log,marker}` or `workers: [names]` | the executor, before ending a turn to wait |
 | `quota.hit` | `quota.resets` (epoch / ISO / local `HH:MM`); `quota.agent` | whoever received the 429 |
+| `process.start` / `process.end` | `process{pid,what}` — a shell the round started (`process.pid=int:$$` at the top of the background command); `end` when it finished on its own. The trigger's reaper ends every `start` without an `end` that is still alive, and nothing else | the executor, through `event.sh` |
 | `manager.start` / `spawn` / `resume` / `verify` / `stop` | all carry `managerSession`; `spawn`/`resume` need `manager.agent{id}`; `resume` needs `manager.reason` quota/restart/wake; `verify` needs `manager.checks{"n":"pass"/"fail"}` and `manager.result` | `manager_log.sh` (never `event.sh` directly) |
 | `close.plan`, `close.result` | `plan{rules,rulesSha256,…}` | `close_plan.sh`, `close_verdict_fill.sh` |
 | `stamp.carried`, `report.saved`, `doctor.result` | as named | `carry_stamp.sh`, `report_save.sh`, `doctor.sh` |

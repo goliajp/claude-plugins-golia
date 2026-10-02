@@ -73,13 +73,14 @@ if [ "$TRIGGER" = "self" ]; then
 fi
 
 # HARD invariant (2026-08-02): a rotation may not close while ANY child
-# process of this session survives — every watcher/poller/sleeper is
-# reaped mechanically here, not by agent discipline. Runs on every
-# accepted trigger (self AND manual). rotation-276 incident: a watcher
-# polling a pattern that never appears ran 6h into the next rotation
-# because the ps-based audit truncated its command line; this reaper walks
-# the process tree instead.
-ROTATION_STATE_DIR="$STATE_DIR" "$SCRIPT_DIR/kill_stray_shells.sh" || {
+# process this round started survives — every watcher/poller/sleeper the
+# round registered (event.sh process.start) is reaped mechanically here,
+# not by agent discipline. Runs on every accepted trigger (self AND
+# manual). rotation-276 incident: a watcher polling a pattern that never
+# appears ran 6h into the next rotation because the ps-based audit
+# truncated its command line; the reaper reads the registrations instead.
+ROTATION_STATE_DIR="$STATE_DIR" ROTATION_EVENTS_LOG="$EVENTS_LOG" ROTATION_REAP_ROTATION_ID="$(autorun_current_rotation_id)" \
+  "$SCRIPT_DIR/kill_stray_shells.sh" || {
   echo "trigger.sh: kill_stray_shells.sh FAILED — rotation close aborted" >&2
   exit 1
 }
