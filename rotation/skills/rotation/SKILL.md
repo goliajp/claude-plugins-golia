@@ -15,12 +15,13 @@ The round: read `.claude/handoff.md` in full → ship the next items in order �
 - **The trigger section is a contract**, under `## rotate-trigger` (or the project's `ROTATION_TRIGGER_SECTION`): `axis:` (one of `ROTATION_AXES`), `closed:` (≥ `ROTATION_TRIG1_MIN_CLOSED` shas from *this* round, each with what it closed), `gate: N/F/S` with F = 0. No phrase from the TRIG-4 blacklist (`prep work done`, `substantial work`, `complexity`, `ROI`, `sub-milestone`, …).
 - **Stamps are the evidence.** Every check in `ROTATION_STAMPS` is at HEAD (`headSha` a commit of this round, not `-dirty`, `verdict=ok`) or carried to exactly HEAD by the plan. Stamp, then `close_verdict_fill.sh`, then handoff — a fill before the last stamp is amber.
 - **Red in the verdict = no close.** Bisect, fix or revert, run the gate again through `adapter_run.sh`. Amber = attribute it in the handoff.
-- **Close order** (`docs/close.md`): end every child process → `close_plan.sh` → run the plan → carry the rest → fill → handoff → `agent_log.sh end <your name> rotation <model>` → `trigger.sh self` → one line, stop. End your own stray shells by PID first: in manager mode (`manager.active` exists) the trigger's reaper is skipped because the process is shared; in session mode it ends every Bash-tool shell of the process except a `watchdog.sh`. A trial run of the protocol never happens inside a shared session.
+- **Close order** (`docs/close.md`): end every child process → `close_plan.sh` → run the plan → carry the rest → fill → handoff → `agent_log.sh end <your name> rotation <model>` → `trigger.sh self` → one line, stop. The trigger's reaper ends the shells you registered with `event.sh process.start` and nothing else (not the manager's watchdog, not other agents' shells); a shell you never registered is yours to end by PID first.
 
 ## Bookkeeping the recovery tools depend on
 
 - Register every agent you spawn the moment `Agent` returns its id: `ROTATION_AGENT_ID=<id> ROTATION_AGENT_WORKTREE=<path> bash .claude/rotation/agent_log.sh start <name> worker <model> "<task>"`; `end` when done (`ROTATION_AGENT_STATUS=abandoned` when given up). Without the id it cannot be resumed after a restart.
 - Before ending a turn to wait: `bash .claude/rotation/event.sh executor.waiting remote.log=<log> 'remote.marker=<regexp>'` or `… executor.waiting workers=list:<name>,<name>`.
+- Every background shell you start begins with `bash .claude/rotation/event.sh process.start process.pid=int:$$ process.what=<label>`; `… process.end process.pid=int:<pid>` when it finished on its own. Only registered pids are reaped at the trigger.
 - A rate limit you stop for: `event.sh quota.hit quota.resets=<time> quota.agent=<id>`.
 - After "Session restarted": `bash .claude/rotation/recover.sh` first; continue registered workers by `SendMessage <id>`; never restart a remote job whose end is not on record while its log has no terminal marker.
 

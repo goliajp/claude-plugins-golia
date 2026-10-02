@@ -133,7 +133,8 @@ MESSAGES = {
     "h_results": "## 3 Results",
     "results_pending": "(to be filled: `close_verdict_fill.sh {rid}`)",
     "results_filled": "Filled {at}. Readings come from the stamps; \"previous\" = the last row in stamps.jsonl "
-                      "of the same check that measured a different commit.",
+                      "of the same check that measured the round's start `{prev}` or an earlier commit "
+                      "(baseline sha {prev}; a stamp taken mid-round is never the baseline).",
     "results_table_head": "| check | status | stamp sha | readings (delta vs previous) | elapsed | verdict |",
     "status_ran": "ran",
     "status_carried": "carried from {sha}",
@@ -610,12 +611,26 @@ def num(v):
     return None
 
 
-def previous_row(history, tool, cur):
-    """the last non-carried row of this tool that measured a different commit, written before the current one"""
-    cur_sha, cur_at = cur.get("headSha") or "", cur.get("ranAt") or ""
-    prior = [s for s in history if s.get("tool") == tool and not s.get("carried")
-             and not same_sha(s.get("headSha"), cur_sha) and (s.get("ranAt") or "") < cur_at]
-    return prior[-1] if prior else None
+def is_ancestor(sha, base):
+    r = subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", sha, base], capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def previous_row(history, tool, cur, base):
+    """the baseline a reading is judged against: the last non-carried row of this tool that measured the round's
+    start `base` or a commit before it, and not the current stamp's own commit. a stamp taken mid-round is never
+    the baseline — one measured under lighter load made the round's own end read as a regression while the
+    readings at the round's start and end were the same"""
+    cur_sha = cur.get("headSha") or ""
+    for s in reversed(history):
+        if s.get("tool") != tool or s.get("carried"):
+            continue
+        sha = s.get("headSha") or ""
+        if not sha or sha.endswith("-dirty") or same_sha(sha, cur_sha):
+            continue
+        if is_ancestor(sha, base):
+            return s
+    return None
 
 
 def fill(rid):
@@ -650,7 +665,7 @@ def fill(rid):
             status = "carried"
         else:
             status = "pending"
-        prev = previous_row(history, r["tool"], doc)
+        prev = previous_row(history, r["tool"], doc, v["prevSha"])
         readings = []
         for key in r["show"]:
             cur_v = dig(doc, key)
@@ -721,7 +736,7 @@ def render_results(v):
     if not res.get("filledAt"):
         out += [msg("results_pending", rid=v["rotationId"]), "", RESULTS_END]
         return "\n".join(out)
-    out += [msg("results_filled", at=res["filledAt"]), ""]
+    out += [msg("results_filled", at=res["filledAt"], prev=v["prevSha"][:9]), ""]
     out += [msg("results_table_head"), "|---|---|---|---|---|---|"]
     for c in v["checks"]:
         if c["prerequisite"]:
