@@ -49,7 +49,7 @@ The plan appends a `close.plan` event with the rules table's path, sha256 and ro
 
 | marker | when |
 |---|---|
-| **RED** | a `regress` rule hit (`down` / `up` / `nonzero` against the last stamp that measured a different commit); a stamp verdict other than `ok` or no verdict; substrate files in the range and no `gate.end` of this round (`red_gate_missing`, naming `ROTATION_GATE_CMD`) |
+| **RED** | a `regress` rule hit (`down` / `up` / `nonzero` / `each-up` against the last stamp that measured a different commit); a stamp verdict other than `ok` or no verdict; substrate files in the range and no `gate.end` of this round (`red_gate_missing`, naming `ROTATION_GATE_CMD`) |
 | **amber** | a `~`-prefixed `regress` rule hit; a check the plan said to run whose stamp is not at HEAD or missing (`amber_not_at_head`) |
 
 Red means the round does not close until it is dealt with (bisect the range, fix or revert, run the gate through `ROTATION_GATE_CMD` again); amber must be attributed in the handoff. The fill reports regressions in its output and the `close.result` event, not in its exit code (0 filled, 2 no verdict).
