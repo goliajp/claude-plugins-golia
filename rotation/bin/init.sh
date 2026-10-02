@@ -55,7 +55,7 @@ for s in $SHIMS; do
     echo "init: $DEST/$s exists and is not a shim; left alone (--force replaces it)"
     continue
   fi
-  printf '#!/usr/bin/env bash\nexec "$(cat "$(dirname "$0")/kernel.path")/bin/%s" "$@"\n' "$s" > "$DEST/$s"
+  printf '#!/usr/bin/env bash\n# the project root is where this shim lives, not the caller'"'"'s git top level\n# (a worker'"'"'s worktree inside the project is a different top level)\nd="$(cd "$(dirname "$0")" && pwd)"\n: "${ROTATION_PROJECT_DIR:=$(cd "$d/../.." && pwd)}"\nexport ROTATION_PROJECT_DIR\nexec "$(cat "$d/kernel.path")/bin/%s" "$@"\n' "$s" > "$DEST/$s"
   chmod +x "$DEST/$s"
   written=$((written + 1))
 done
@@ -63,7 +63,7 @@ done
 if [ -e "$DEST/lib.sh" ] && [ "$FORCE" -eq 0 ] && ! grep -q 'kernel.path' "$DEST/lib.sh" 2>/dev/null; then
   echo "init: $DEST/lib.sh exists and is not a shim; left alone (--force replaces it)"
 else
-  printf '. "$(cat "$(dirname "${BASH_SOURCE[0]}")/kernel.path")/bin/lib.sh"\n' > "$DEST/lib.sh"
+  printf '_rotation_shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n: "${ROTATION_PROJECT_DIR:=$(cd "$_rotation_shim_dir/../.." && pwd)}"\nexport ROTATION_PROJECT_DIR\n. "$(cat "$_rotation_shim_dir/kernel.path")/bin/lib.sh"\n' > "$DEST/lib.sh"
   written=$((written + 1))
 fi
 echo "init: $written shims in $DEST"
