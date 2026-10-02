@@ -12,6 +12,10 @@
 #   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned]
 #   executor.waiting  remote.log= remote.marker= [remote.host=]   or   workers=list:<name>,<name>
 #   quota.hit         quota.resets=<epoch | ISO time | HH:MM local>  [quota.agent=<name or id>]
+#   process.start     process.pid=int:<pid> [process.what=<label>]  — a shell this round started
+#                     (`process.pid=int:$$` at the top of a background command); the trigger's
+#                     reaper ends every registered pid still alive, and nothing it was not told about
+#   process.end       process.pid=int:<pid>  — that shell finished on its own
 #   manager.start / manager.spawn / manager.resume / manager.verify / manager.stop
 #                     every one carries managerSession= (the session id, or raw:null when unknown);
 #                     spawn and resume need manager.agent=raw:{"id":…[,"name":…]}; resume needs
@@ -71,6 +75,10 @@ if kind == 'executor.waiting' and not ((remote.get('log') and remote.get('marker
     fail('executor.waiting needs remote.log= and remote.marker=, or workers=list:<names>')
 if kind == 'quota.hit' and (not isinstance(doc.get('quota'), dict) or doc['quota'].get('resets') in (None, '')):
     fail('quota.hit needs quota.resets=')
+if kind in ('process.start', 'process.end'):
+    proc = doc.get('process') if isinstance(doc.get('process'), dict) else {}
+    if not isinstance(proc.get('pid'), int) or isinstance(proc.get('pid'), bool) or proc['pid'] <= 0:
+        fail(f'{kind} needs process.pid=int:<pid>')
 if kind.startswith('manager.'):
     if kind not in ('manager.start', 'manager.spawn', 'manager.resume', 'manager.verify', 'manager.stop'):
         fail(f"unknown manager kind '{kind}'")
