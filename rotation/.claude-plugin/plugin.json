@@ -1,6 +1,6 @@
 {
   "name": "rotation",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Machine-governed session rotation for long autonomous runs: a trigger gate (TRIG-1..8) that releases a handover only on measured work, a turn-end invariant gate, a rules-table close planner with verdicts, interruption recovery and a watchdog, all driven by append-only jsonl state. The kernel knows no project; a project adapts it through project.sh, rotation.conf and four adapter commands.",
   "author": {
     "name": "GOLIA K.K.",

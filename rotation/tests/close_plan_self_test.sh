@@ -35,6 +35,12 @@
 #                                          check with an old stamp is not
 #  20  fill: the baseline is the last stamp at or before the round's start (prevSha), never a mid-round
 #                                          stamp; the section header names the baseline sha
+#  21  fill: a stamp row withdrawn by a later void row is no baseline; a void naming another row changes nothing
+#  22  fill: `each-up` over a map of repeated readings — a cell only the new stamp has is not judged, a common
+#                                          cell worse beyond the bar and the spread is red, a move inside the
+#                                          noise (readings overlap) is not, crossing the ceiling is red, a list
+#                                          shorter than three judges nothing
+#  23  a rules table with an unknown regress op, or each-up without its bar → exit 2
 #
 # Everything runs against the fixture: ROTATION_PROJECT_DIR / ROTATION_CONF=/dev/null /
 # ROTATION_PROJECT_SH=/dev/null, so the installed project's conf and adapter are never read.
@@ -456,6 +462,57 @@ check "20r end below the round's start is red against the start's reading" "$out
 printf '{"tool":"sweep","ranAt":"2026-10-01T01:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":120,"passTotal":140,"file":"x"}\n' "$M1" > "$TMP/stamps/stamps.jsonl"
 out=$(run_fill r-test-1); rc=$?
 check "20n a history with only mid-round stamps gives no baseline and no red" "$out" "$rc" 0 'red=0 amber=0'
+
+# 21 — a withdrawn row is no baseline. Same round B0..E2; the end reads 90 against the start's 100 (red in 20r).
+# Once a void row names the start's row, nothing at or before the start is left to judge against
+printf '{"tool":"sweep","ranAt":"2026-10-01T00:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":100,"passTotal":120,"file":"x"}\n' "$B0" > "$TMP/stamps/stamps.jsonl"
+printf '{"tool":"stamp.void","ranAt":"2026-10-01T03:00:00Z","void":[{"tool":"sweep","ranAt":"2026-10-01T05:00:00Z","headSha":"%s"}],"reason":"another row"}\n' "$B0" >> "$TMP/stamps/stamps.jsonl"
+out=$(run_fill r-test-1); rc=$?
+check "21o a void naming another row leaves the baseline in place: still red" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 100 → 90'
+printf '{"tool":"stamp.void","ranAt":"2026-10-01T03:00:01Z","void":[{"tool":"sweep","ranAt":"2026-10-01T00:00:00Z","headSha":"%s"}],"reason":"measured part of the tree"}\n' "$B0" >> "$TMP/stamps/stamps.jsonl"
+out=$(run_fill r-test-1); rc=$?
+check "21 the start's row voided: no baseline, no red" "$out" "$rc" 0 'red=0 amber=0'
+
+# 22 — each-up per cell. prev (round start B0) and end (E2) maps of three repeats each:
+#   a  0.50..0.52 → 0.51..0.53   inside the noise                         not red
+#   w  0.50..0.52 → 0.60..0.62   +17%, apart, beyond 1.5x spread         red
+#   x  0.96..0.98 → 1.00..1.02   +4% but crosses 1.0, apart               red
+#   n  0.40..0.42 → 0.38..0.50   median +15% but the readings overlap     not red
+#   s  one reading → 0.90..0.95  a list shorter than three                 not judged
+#   e  only in the end stamp                                               not judged
+#   d  only in the start stamp                                             not judged
+sed 's/medianVsBunAot	-$/medianVsBunAot	cells:each-up:0.10:1.5:1.0/' "$TMP/rules.tsv" > "$TMP/rules-each.tsv"
+grep -q 'cells:each-up:0.10:1.5:1.0$' "$TMP/rules-each.tsv" || { echo "FAIL 22 fixture: bench row not rewritten"; fail=$(( fail + 1 )); }
+prev_cells='{"a":[0.50,0.51,0.52],"w":[0.50,0.51,0.52],"x":[0.96,0.97,0.98],"n":[0.40,0.41,0.42],"s":[0.5],"d":[0.3,0.3,0.3]}'
+printf '{"tool":"bench","ranAt":"2026-10-01T00:00:00Z","headSha":"%s","verdict":"ok","medianVsBunAot":0.5,"cells":%s,"file":"x"}\n' "$B0" "$prev_cells" > "$TMP/stamps/stamps.jsonl"
+bench_end() {  # bench_end <cells-json>: the end stamp at E2
+  printf '{"tool":"bench","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","headShaSource":"arg","verdict":"ok","medianVsBunAot":0.5,"cells":%s}\n' "$E2" "$1" > "$TMP/stamps/bench-latest.json"
+}
+printf '{"tool":"sweep","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":100,"passTotal":120}\n' "$E2" > "$TMP/stamps/sweep-latest.json"
+rm -f "$TMP/verdicts"/*
+out=$(RULES="$TMP/rules-each.tsv" run_plan "$B0" "$E2"); rc=$?
+check "22p plan with an each-up row" "$out" "$rc" 0 'run=\[release-build sweep gmalloc bench size\]|run=\[.*bench.*\]'
+bench_end '{"a":[0.51,0.52,0.53],"n":[0.38,0.47,0.50],"s":[0.90,0.92,0.95],"e":[2.0,2.1,2.2]}'
+out=$(RULES="$TMP/rules-each.tsv" run_fill r-test-1); rc=$?
+check "22q noise, an overlap, a short list and a new cell: no red" "$out" "$rc" 0 'red=0 amber=0'
+bench_end '{"a":[0.51,0.52,0.53],"w":[0.60,0.61,0.62],"x":[1.00,1.01,1.02],"n":[0.38,0.47,0.50],"e":[2.0,2.1,2.2]}'
+out=$(RULES="$TMP/rules-each.tsv" run_fill r-test-1); rc=$?
+check "22r a common cell worse beyond the bar, and one crossing the ceiling: red, by name" "$out" "$rc" 0 'red=2' \
+  'RED +bench: cells\.w 0\.51 → 0\.61' 'RED +bench: cells\.x 0\.97 → 1\.01'
+printf '%s\n' "$out" | grep -qE 'cells\.(a|n|s|e|d) ' && { echo "FAIL 22s an unjudged cell was flagged"; fail=$(( fail + 1 )); } \
+  || { echo "ok   22s cells a / n / s / e / d not flagged"; pass=$(( pass + 1 )); }
+# the same move with no bar but the ceiling (rel 0.5): only the crossing is red
+sed 's/cells:each-up:0.10:1.5:1.0$/cells:each-up:0.5:1.5:1.0/' "$TMP/rules-each.tsv" > "$TMP/rules-each2.tsv"
+out=$(RULES="$TMP/rules-each2.tsv" run_fill r-test-1); rc=$?
+check "22c a 50% bar: w is inside it, x still crosses 1.0" "$out" "$rc" 0 'red=1' 'RED +bench: cells\.x 0\.97 → 1\.01'
+
+# 23 — a regress entry the kernel cannot judge is refused, not silently ignored
+sed 's/medianVsBunAot	-$/medianVsBunAot	medianVsBunAot:sideways/' "$TMP/rules.tsv" > "$TMP/rules-badop.tsv"
+out=$(RULES="$TMP/rules-badop.tsv" run_plan "$B0" "$E2" --force); rc=$?
+check "23 unknown regress op → exit 2" "$out" "$rc" 2 'regress `medianVsBunAot:sideways`'
+sed 's/medianVsBunAot	-$/medianVsBunAot	cells:each-up/' "$TMP/rules.tsv" > "$TMP/rules-badop2.tsv"
+out=$(RULES="$TMP/rules-badop2.tsv" run_plan "$B0" "$E2" --force); rc=$?
+check "23b each-up without its bar → exit 2" "$out" "$rc" 2 'each-up takes <rel>'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

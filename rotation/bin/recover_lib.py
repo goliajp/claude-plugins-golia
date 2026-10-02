@@ -33,8 +33,19 @@ Environment (set by recover.sh / watchdog.sh from lib.sh and the project adapter
   ROTATION_WAKE_AFTER        seconds (rotation.conf, default 300): a remote.end of this round followed by no executor
                              event for that long is a WAKE — the executor need not have recorded executor.waiting.
                              A manager.resume after the remote.end restarts the clock; other manager.* events do not.
+  ROTATION_WORKER_STALE      seconds (rotation.conf, default 1200): a non-executor agent of this round still registered
+                             as running whose transcript has not been written for that long is `dead?` on the page
+                             and a WAKE for the watchdog. The transcript is <config>/projects/<project>/<session>/
+                             subagents/agent-<id>.jsonl, <session> being the managerSession on the agent's start event,
+                             else on the round's executor's (agents are nested under the session that started the
+                             executor); with no session or id on record, or no such file, the state is unknown.
+  ROTATION_CLAUDE_CONFIG_DIRS
+                             `:`-separated Claude Code config directories searched for that transcript; default
+                             $CLAUDE_CONFIG_DIR, ~/.claude and every ~/.claude-* directory (several accounts may run
+                             side by side, and the agent may live under any of them)
 """
 import datetime
+import glob
 import json
 import os
 import re
@@ -50,6 +61,7 @@ PROBE_CMD = os.environ.get('ROTATION_REMOTE_PROBE_CMD', '')
 GREP_CMD = os.environ.get('ROTATION_REMOTE_GREP_CMD', '')
 COLLECT_CMD = os.environ.get('ROTATION_REMOTE_COLLECT_CMD', '')
 WAKE_AFTER = int(os.environ.get('ROTATION_WAKE_AFTER') or 300)
+WORKER_STALE = int(os.environ.get('ROTATION_WORKER_STALE') or 1200)
 KERNEL_DIR = os.path.dirname(os.path.abspath(__file__))
 ORIGIN = os.environ.get('ROTATION_AGENT_ORIGIN_PATTERN') or os.environ.get('HARDEV_AGENT_ORIGIN_PATTERN') or '^Agent-Origin:'
 # the manager marker: while it exists a rotation is being managed, and every commit on the main tree must come
@@ -335,6 +347,50 @@ def last_index(events, kind):
     return None
 
 
+def config_dirs():
+    raw = os.environ.get('ROTATION_CLAUDE_CONFIG_DIRS')
+    if raw:
+        return [d for d in raw.split(':') if d]
+    home = os.path.expanduser('~')
+    dirs = [os.environ.get('CLAUDE_CONFIG_DIR') or '', os.path.join(home, '.claude')]
+    return [d for d in dirs if d] + sorted(glob.glob(os.path.join(home, '.claude-*')))
+
+
+def transcript_state(agent, session, now):
+    """how long ago the agent's transcript was last written: alive / dead? (ROTATION_WORKER_STALE or more) /
+    unknown (no session or id on record, or no transcript under any config directory)"""
+    aid = agent.get('id')
+    if not session or not aid:
+        why = 'no session on record' if not session else 'no agent id on record'
+        return {'state': 'unknown', 'why': why, 'path': None, 'mtime': None, 'age': None, 'session': session}
+    found = {}
+    for d in config_dirs():
+        for path in glob.glob(os.path.join(d, 'projects', '*', session, 'subagents', f'agent-{aid}.jsonl')):
+            found[os.path.realpath(path)] = path
+    if not found:
+        return {'state': 'unknown', 'why': 'no transcript found', 'path': None, 'mtime': None, 'age': None, 'session': session}
+    path = found[max(found, key=os.path.getmtime)]
+    mtime = int(os.path.getmtime(path))
+    age = now - mtime
+    return {'state': 'dead?' if age >= WORKER_STALE else 'alive', 'why': None, 'path': path, 'mtime': mtime, 'age': age,
+            'session': session}
+
+
+def worker_states(agents, now):
+    """every agent of this round still registered as running that is not the executor or the manager: the ones
+    the executor is waiting on. each gets its transcript state"""
+    ex = executor_of(agents)
+    rounds = [a for a in agents if a['role'] == 'rotation' and a['inRound'] and a.get('managerSession')]
+    fallback = (ex or {}).get('managerSession') or (rounds[-1]['managerSession'] if rounds else None)
+    out = []
+    for a in agents:
+        if a['status'] != 'running' or not a['inRound'] or a['role'] in ('rotation', 'manager'):
+            continue
+        a['transcript'] = transcript_state(a, a.get('managerSession') or fallback, now)
+        out.append(a)
+    return out
+
+
 def waiting_state(events, probe=True):
     """the last executor.waiting, whether the executor has moved since, and whether what it waits for has happened"""
     acts = executor_events(events)
@@ -505,6 +561,7 @@ def build_scene(probe):
         'remotes': open_remotes(events, probe),
         'remoteEnd': remote_end_state(events, rnd['ts']),
         'waiting': waiting_state(events, probe), 'quota': quota_state(events, now),
+        'workers': worker_states(agents, now), 'workerStale': WORKER_STALE,
         'probe': run_probe() if probe else None,
     }
     scene['action'] = decide(scene)
@@ -544,8 +601,21 @@ def print_scene(s):
     p(f"agents: {len(s['agents'])}")
     for a in s['agents']:
         extra = ''.join(f" {k}={a[k]}" for k in ('worktree', 'scratch', 'gateLog') if a.get(k))
+        t = a.get('transcript')
+        if t:
+            extra += (f" transcript={t['state']} ({t['age'] // 60} min since written)" if t['age'] is not None
+                      else f" transcript=unknown ({t['why']})")
         p(f"  {a['name']} role={a['role']} status={a['status']}{'' if a['inRound'] else ' (earlier round)'} id={a.get('id') or '—'}"
           f" last={a['lastAt']} ({ago(a.get('lastTs'), now)}){extra}")
+    for a in s['workers']:
+        t = a['transcript']
+        if t['state'] != 'dead?':
+            continue
+        p(f"  dead? {a['name']}: its transcript {t['path']} has not been written for {t['age'] // 60} min "
+          f"(ROTATION_WORKER_STALE={s['workerStale']} s) while it is still registered as running. Tell the executor: "
+          f"continue it (SendMessage to {a['id']}, from session {t['session']}), or record its end "
+          f"(ROTATION_AGENT_STATUS=abandoned agent_log.sh end {a['name']} {a['role']} {a.get('model') or '-'}) and dispatch "
+          f"its task again: {a.get('task') or '—'}" + (f" · worktree {a['worktree']}" if a.get('worktree') else ''))
     ex_names = ', '.join(f"{a['name']}({a.get('id') or 'no-id'})" for a in s['executors'])
     p(f"running rotation executors: {len(s['executors'])}" + (f" — {ex_names}" if ex_names else '')
       + (' · MORE THAN ONE: the protocol runs one executor at a time, end the stale one first' if len(s['executors']) > 1 else ''))
@@ -625,6 +695,13 @@ def watch(stale, wake, dirty_age, floor):
         since = f"manager.resume {iso(re_['refTs'])}" if re_['resumed'] else f"remote.end {re_['at']}"
         return 'WAKE', (f"WAKE remote.end kind={re_['kind']} sha={re_['sha']} log={re_['log']} is on record and no executor event followed "
                         f"for {now - re_['refTs']} s since {since} · agent={who}")
+
+    # a worker the executor is waiting on whose transcript stopped: the executor would wait for it forever
+    dead = [a for a in worker_states(agents, now) if a['transcript']['state'] == 'dead?']
+    if dead:
+        names = ','.join(f"{a['name']}({a.get('id')},{a['transcript']['age']}s)" for a in dead)
+        return 'WAKE', (f"WAKE dead? worker(s) {names}: transcript not written for ≥ {WORKER_STALE} s while still registered "
+                        f"as running · continue or end and re-dispatch (recover.sh) · agent={who}")
 
     fc = foreign_commits(rnd, agents, events)
     if fc and fc.get('count'):

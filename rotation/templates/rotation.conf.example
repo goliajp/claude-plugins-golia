@@ -27,6 +27,9 @@ ROTATION_BOOTSTRAP_ROUNDS=20
 # TRIG-8: gate coverage — a round whose range touched a check's trigger paths must have a gate.end event;
 # off emits no line; on judges it (switch it on in a gap between rounds, and note the round in the handoff)
 ROTATION_TRIG8_GATE_COVERAGE=off
+# TRIG-9: the round's filled close verdict (ROTATION_VERDICT_DIR/<rid>.verdict.json) must have no red; no verdict,
+# or one never filled, fails too. off emits no line; on judges it (switch it on in a gap between rounds)
+ROTATION_TRIG9_VERDICT_RED=off
 # TRIG-5: consecutive same-axis rotations before an axes-review is required, and how old its reading may be
 ROTATION_TRIG5_SAME_AXIS_MAX=8
 ROTATION_TRIG5_BENCH_MAX_AGE_DAYS=14
@@ -53,5 +56,8 @@ ROTATION_CLOSE_RULES=.claude/rotation/close_rules.tsv
 # watchdog: seconds after a remote.end of this round with no executor event (and no commit) before WAKE;
 # a manager.resume restarts the clock. Kernel default 300
 ROTATION_WAKE_AFTER=300
+# recover / watchdog: seconds a worker still registered as running may go without its transcript being written
+# before it is `dead?` on the recover page and a WAKE for the watchdog. Kernel default 1200
+ROTATION_WORKER_STALE=1200
 # the close planner's message table (the verdict's language); kernel default is English
 # ROTATION_MESSAGES=.claude/rotation/messages.conf

@@ -89,7 +89,7 @@ if [ "$conf_parsed" -eq 1 ]; then
     eval "v=\${$k:-}"
     is_int "$v" || { fail "conf.$k" "must be an integer, got '$v'"; keys_bad=1; }
   done
-  for k in ROTATION_COLD_START_WINDOW ROTATION_BOOTSTRAP_ROUNDS ROTATION_WAKE_AFTER; do
+  for k in ROTATION_COLD_START_WINDOW ROTATION_BOOTSTRAP_ROUNDS ROTATION_WAKE_AFTER ROTATION_WORKER_STALE; do
     eval "v=\${$k:-}"
     [ -z "$v" ] || is_int "$v" || { fail "conf.$k" "must be an integer when set, got '$v'"; keys_bad=1; }
   done
@@ -99,6 +99,7 @@ if [ "$conf_parsed" -eq 1 ]; then
     case "$v" in enforce|observe) ;; *) fail "conf.$k" "must be enforce or observe, got '$v'"; keys_bad=1 ;; esac
   done
   case "${ROTATION_TRIG8_GATE_COVERAGE:-off}" in on|off) ;; *) fail conf.ROTATION_TRIG8_GATE_COVERAGE "must be on or off, got '$ROTATION_TRIG8_GATE_COVERAGE'"; keys_bad=1 ;; esac
+  case "${ROTATION_TRIG9_VERDICT_RED:-off}" in on|off) ;; *) fail conf.ROTATION_TRIG9_VERDICT_RED "must be on or off, got '$ROTATION_TRIG9_VERDICT_RED'"; keys_bad=1 ;; esac
   [ -n "$(printf '%s' "${ROTATION_AXES:-}" | tr -d ' ,')" ] || { fail conf.ROTATION_AXES "must name at least one axis"; keys_bad=1; }
   [ -n "$(printf '%s' "${ROTATION_STAMPS:-}" | tr -d ' ')" ] || { fail conf.ROTATION_STAMPS "must name at least one stamp (TRIG-6 fails on an empty list)"; keys_bad=1; }
   [ -n "${ROTATION_SWEEP_STAMP:-}" ] || { fail conf.ROTATION_SWEEP_STAMP "must name the sweep stamp (TRIG-7 fails without it)"; keys_bad=1; }
