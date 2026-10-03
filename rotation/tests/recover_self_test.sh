@@ -462,7 +462,7 @@ expect_eq "refused manager events were not written" "$(wc -l < "$EV" | tr -d ' '
 RT="$TMP/reaper"; mkdir -p "$RT/kernel"
 ln -s /bin/bash "$RT/claude-sim"
 printf '#!/bin/bash\nsleep 300\n' > "$RT/kernel/watchdog.sh"
-cp "$BIN/kill_stray_shells.sh" "$RT/kernel/"
+cp "$BIN/kill_stray_shells.sh" "$BIN/remote_kill.py" "$RT/kernel/"
 REV="$RT/events.jsonl"
 sleep 300 & outside=$!
 cat > "$RT/tree.sh" <<EOF
@@ -494,10 +494,11 @@ expect_has "reaper: the registered pid outside the session is STALE, not killed"
 expect_eq "reaper: the sleeper outside the session is alive" "$(kill -0 "$outside" 2>/dev/null && echo alive || echo dead)" "alive"
 expect_has "reaper: reports the count" "$(cat "$RT/reaper.out")" "REAPED 2"
 expect_eq "reaper: exits 0" "$(cat "$RT/reaper.rc")" "rc=0"
-expect_eq "reaper: session mode runs the remote reap command" "$([ -e "$RT/remote-reaped" ] && echo ran || echo no)" "ran"
+expect_eq "reaper: the project's pattern reap command is no longer run" "$([ -e "$RT/remote-reaped" ] && echo ran || echo no)" "no"
+expect_has "reaper: and says it ignored it" "$(cat "$RT/reaper.out")" "IGNORED ROTATION_REAP_REMOTE_CMD"
 kill "$outside" 2>/dev/null
 # manager mode: manager.active in the state directory. Registered pids are still this round's own and die;
-# the remote pattern reap is skipped (workers' remote jobs match the same patterns). An empty registry is CLEAN.
+# the runner reap is skipped and said so. An empty registry is CLEAN.
 mkdir -p "$RT/state-managed"; echo "rotation=r-x executor=e id=a since=t session=s" > "$RT/state-managed/manager.active"
 rm -f "$RT/remote-reaped"
 cat > "$RT/tree2.sh" <<EOF
@@ -677,6 +678,129 @@ expect_has "no managerSession on record: unknown" "$out" "transcript=unknown (no
 ev 100 agent.end "$(agent w7 worker '"id":"ag-w7"')"
 expect_not "an ended worker has no transcript state" "$(run "$BIN/recover.sh" --no-probe)" "transcript="
 rm -rf "$TMP/cfg-a"
+
+# ── runner jobs end only by their registered pid (remote.pid) and its descendants, never by a pattern ──
+# A fake ssh runs its last argument here with /bin/sh, so "the runner" is this machine and its process
+# table; the trees below stand in for jobs there.
+FS="$TMP/fake-ssh"; mkdir -p "$FS"
+cat > "$FS/ssh" <<'EOF'
+#!/bin/sh
+# stands in for ssh: options and host are dropped, the command runs here
+while [ "$#" -gt 1 ]; do shift; done
+exec /bin/sh -c "$1"
+EOF
+chmod +x "$FS/ssh"
+lstart() { set -- $(ps -o lstart= -p "$1"); echo "$*"; }
+tree_alive() { local n=0 p; for p in "$@"; do kill -0 "$p" 2>/dev/null && n=$((n + 1)); done; echo "$n"; }
+down() { local c; for c in $(pgrep -P "$1"); do down "$c"; done; kill "$1" 2>/dev/null; }
+
+# remote_run.sh: records remote.start with the pid line's pid, its start time, the host and its own pid;
+# the pid line is not passed on, everything else is; the exit code is the job's
+reset
+out=$(PATH="$FS:$PATH" run "$BIN/remote_run.sh" h 'echo first; echo second; exit 3' remote.kind=gate remote.sha=abc "remote.log=$TMP/rr.log" 'remote.marker=DONE'); rc=$?
+expect_eq "remote_run: the job's exit code passes through" "$rc" "3"
+expect_eq "remote_run: the job's output passes through, the pid line does not" "$out" "$(printf 'first\nsecond')"
+shape=$(python3 -c '
+import json,sys
+r=[json.loads(l) for l in open(sys.argv[1])][-1]; m=r["remote"]
+print(r["kind"], m["kind"], m["host"], type(m["pid"]).__name__, bool(m["pidStart"].strip()), type(m["launcher"]).__name__)' "$EV")
+expect_eq "remote_run: remote.start carries host, int pid, its start time and the launcher pid" "$shape" "remote.start gate h int True int"
+PATH="$FS:$PATH" run "$BIN/remote_run.sh" h true remote.kind=gate "remote.log=$TMP/rr.log" remote.host=x >/dev/null 2>&1
+expect_eq "remote_run: refuses a caller-set remote.host" "$?" "2"
+PATH="$FS:$PATH" run "$BIN/remote_run.sh" 'h;rm' true remote.kind=gate "remote.log=$TMP/rr.log" >/dev/null 2>&1
+expect_eq "remote_run: refuses a host that is not a plain name" "$?" "2"
+cat > "$FS/ssh-mute" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$FS/ssh-mute"; mkdir -p "$FS/mute"; cp "$FS/ssh-mute" "$FS/mute/ssh"
+reset
+PATH="$FS/mute:$PATH" run "$BIN/remote_run.sh" h true remote.kind=gate "remote.log=$TMP/rr.log" >/dev/null 2>&1
+expect_eq "remote_run: exit 0 without a pid line is 65" "$?" "65"
+expect_eq "remote_run: and records nothing" "$(wc -l < "$EV" | tr -d ' ')" "0"
+
+# the recorded pid is the root of the job's tree: a lock-like wrapper that defers TERM while its child runs
+# (as bench-lock does) and the child itself both end when the registered pid's tree is ended
+reset
+PATH="$FS:$PATH" run "$BIN/remote_run.sh" h "bash -c 'trap \"exit 143\" TERM; sleep 300; :'" remote.kind=gate "remote.log=$TMP/tree.log" >/dev/null 2>&1 &
+rr=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$EV" ] && break; sleep 0.3; done
+rpid=$(python3 -c 'import json,sys; print([json.loads(l) for l in open(sys.argv[1])][-1]["remote"]["pid"])' "$EV")
+members="$rpid $(pgrep -P "$rpid") $(for c in $(pgrep -P "$rpid"); do pgrep -P "$c"; done)"
+expect_eq "the registered pid has the job under it (wrapper and its sleep)" "$([ "$(tree_alive $members)" -ge 2 ] && echo yes || echo no)" "yes"
+kcmd=$(python3 "$BIN/remote_kill.py" "$EV" r-test)
+expect_has "remote_kill: the command addresses the registered pid on its host" "$kcmd" "ssh -o BatchMode=yes -o ConnectTimeout=5 h "
+expect_has "remote_kill: the command checks the pid's start time first" "$kcmd" "ps -o lstart= -p $rpid"
+PATH="$FS:$PATH" sh -c "$kcmd" >/dev/null 2>&1
+sleep 1
+expect_eq "remote_kill: the registered pid and every descendant are gone" "$(tree_alive $members)" "0"
+wait "$rr" 2>/dev/null
+
+# a registered pid whose start time no longer matches is another process now: nothing is killed
+sleep 300 & victim=$!
+reset
+ev 600 remote.start "\"remote\":{\"kind\":\"gate\",\"sha\":\"abc\",\"log\":\"$TMP/r1.log\",\"host\":\"h\",\"pid\":$victim,\"pidStart\":\"Mon Jan  1 00:00:00 2001\"}"
+out=$(PATH="$FS:$PATH" sh -c "$(python3 "$BIN/remote_kill.py" "$EV" r-test)" 2>&1)
+expect_has "remote_kill: a pid with another start time is reported, not killed" "$out" "is not the registered job"
+expect_eq "remote_kill: that process is alive" "$(tree_alive $victim)" "1"
+# a job with a remote.end, a job from another round and a job without a pid get no command at all
+reset
+ev 600 remote.start "\"remote\":{\"kind\":\"gate\",\"sha\":\"abc\",\"log\":\"$TMP/r1.log\",\"host\":\"h\",\"pid\":$victim,\"pidStart\":\"$(lstart $victim)\"}"
+ev 500 remote.end "\"remote\":{\"kind\":\"gate\",\"sha\":\"abc\",\"log\":\"$TMP/r1.log\",\"status\":\"ok\"}"
+ev 400 remote.start "\"remote\":{\"kind\":\"sweep\",\"sha\":\"abc\",\"log\":\"$TMP/r2.log\",\"host\":\"h\"}"
+printf '{"at":"x","ts":%s,"kind":"remote.start","rotationId":"r-old","head":"x","remote":{"kind":"gate","log":"%s","host":"h","pid":%s,"pidStart":"%s"}}\n' "$NOW" "$TMP/r3.log" "$victim" "$(lstart $victim)" >> "$EV"
+expect_eq "remote_kill: no command for an ended job, a job without a pid, or another round's job" "$(python3 "$BIN/remote_kill.py" "$EV" r-test)" ""
+
+# the reaper ends this round's open runner job by its pid in session mode, and only that
+RJ="$RT/remote-job"; mkdir -p "$RJ"
+cat > "$RT/tree3.sh" <<EOF
+/bin/sh -c 'sleep 300; :' >/dev/null 2>&1 & job=\$!
+sleep 0.5
+set -- \$(ps -o lstart= -p \$job); st="\$*"
+: > "$REV"
+printf '{"at":"x","ts":$NOW,"kind":"remote.start","rotationId":"r-test","head":"x","remote":{"kind":"gate","log":"$RJ/g.log","host":"h","pid":%s,"pidStart":"%s"}}\n' "\$job" "\$st" >> "$REV"
+printf '{"at":"x","ts":$NOW,"kind":"remote.start","rotationId":"r-test","head":"x","remote":{"kind":"bench.A","log":"$RJ/b.log","host":"h","pid":%s,"pidStart":"%s"}}\n' "$victim" "\$(set -- \$(ps -o lstart= -p $victim); echo "\$*")" >> "$REV"
+printf '{"at":"x","ts":$NOW,"kind":"remote.end","rotationId":"r-test","head":"x","remote":{"kind":"bench.A","log":"$RJ/b.log","status":"ok"}}\n' >> "$REV"
+PATH="$FS:\$PATH" ROTATION_STATE_DIR="$RT/state-session" ROTATION_EVENTS_LOG="$REV" ROTATION_REAP_ROTATION_ID=r-test \
+  bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper4.out" 2>&1
+sleep 1
+kill -0 \$job 2>/dev/null && echo job=alive || echo job=dead
+kill \$job 2>/dev/null
+EOF
+mkdir -p "$RT/state-session"
+expect_eq "reaper: session mode ends the open runner job by its registered pid" "$("$RT/claude-sim" "$RT/tree3.sh" 2>/dev/null)" "job=dead"
+expect_has "reaper: and reports it" "$(cat "$RT/reaper4.out")" "REMOTE ended pid"
+expect_eq "reaper: a job whose end is recorded is left alone" "$(tree_alive $victim)" "1"
+
+# recover: orphan? only when the local launcher is gone; the hint ends the registered pid, or says to confirm
+# by hand when none is registered; no pattern command ever appears on the page
+sleep 300 & live=$!
+sh -c 'exit 0' & gone=$!; wait "$gone"
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 900 remote.start "\"remote\":{\"kind\":\"gate\",\"sha\":\"o1\",\"log\":\"$TMP/o1.log\",\"marker\":\"DONE\",\"host\":\"h\",\"pid\":$victim,\"pidStart\":\"$(lstart $victim)\",\"launcher\":$gone}"
+ev 800 remote.start "\"remote\":{\"kind\":\"bench.A\",\"sha\":\"o2\",\"log\":\"$TMP/o2.log\",\"marker\":\"DONE\",\"host\":\"h\",\"launcher\":$gone}"
+ev 700 remote.start "\"remote\":{\"kind\":\"close.sweep\",\"sha\":\"o3\",\"log\":\"$TMP/o3.log\",\"marker\":\"DONE\",\"host\":\"h\",\"pid\":$victim,\"pidStart\":\"$(lstart $victim)\",\"launcher\":$live}"
+page=$(run "$BIN/recover.sh" --no-probe)
+last=$(printf '%s\n' "$page" | tail -1)
+expect_has "recover: launcher gone, pid registered → orphan?" "$last" "remote:gate@o1(unknown,orphan?)"
+expect_has "recover: launcher gone, no pid → orphan?" "$last" "remote:bench.A@o2(unknown,orphan?)"
+expect_has "recover: launcher alive → not marked" "$last" "remote:close.sweep@o3(unknown)"
+expect_has "recover: the orphan's hint ends its registered pid on its host" "$page" "end it (its registered pid and descendants only): ssh -o BatchMode=yes -o ConnectTimeout=5 h "
+expect_has "recover: the hint names that pid" "$page" "ps -o lstart= -p $victim"
+expect_has "recover: no pid registered → confirm by hand" "$page" "end it: no PID registered: do not look for it by command-line pattern; confirm by hand"
+expect_eq "recover: one hint per orphan, none for the job whose launcher lives" "$(printf '%s\n' "$page" | grep -c '    end it')" "2"
+expect_not "recover: the page has no pkill -f" "$page" "pkill -f"
+expect_not "recover: the page has no pgrep -f" "$page" "pgrep -f"
+json=$(run "$BIN/recover.sh" --no-probe --json)
+expect_eq "recover --json: orphan flags in order" "$(printf '%s' "$json" | python3 -c 'import json,sys; print([r["orphan"] for r in json.load(sys.stdin)["remotes"]])')" "[True, True, False]"
+expect_not "recover --json: no pkill -f / pgrep -f" "$(printf '%s' "$json" | grep -E 'pkill -f|pgrep -f')" "-f"
+# a job recorded before launchers were (no remote.launcher) is not judged
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 900 remote.start "\"remote\":{\"kind\":\"gate\",\"sha\":\"o4\",\"log\":\"$TMP/o4.log\",\"marker\":\"DONE\",\"host\":\"h\"}"
+expect_eq "recover: no launcher on record → not marked" "$(run "$BIN/recover.sh" --no-probe | tail -1)" "RESPAWN executor leftover=remote:gate@o4(unknown)"
+{ kill "$victim" "$live"; wait "$victim" "$live"; } 2>/dev/null
 
 echo
 echo "recover_self_test: $pass passed, $fail failed"
