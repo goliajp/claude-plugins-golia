@@ -40,7 +40,7 @@ One line per event: `{"at","ts","kind","rotationId","head", …}` plus the kind'
 | `rotation.end` | `trigger`, `next` (the new id) — written just before the new row | `trigger.sh` |
 | `trigger.result` | `trig{result,failed[],observed[],conf{…}}` | `trigger.sh self` |
 | `preflight.end` | `preflight{result,quick,parent,sha,files,reasons}`; `parent` = HEAD when it ran, `sha` = the commit checked or `null` | the project's pre-flight command |
-| `remote.start` | `remote{kind,log}`; `sha`, `marker` (regexp of the terminal line), `host` optional — **no host means the job ran locally and `log` is a local file** | adapter commands, or `event.sh` for any other job |
+| `remote.start` | `remote{kind,log}`; `sha`, `marker` (regexp of the terminal line), `host` optional — **no host means the job ran locally and `log` is a local file**; `pid` (int, the runner shell the job runs under), `pidStart` (that process's `ps -o lstart`), `launcher` (int, the local pid holding the ssh) added by `remote_run.sh` | adapter commands (through `remote_run.sh` for a runner job), or `event.sh` for any other job |
 | `remote.end` | `remote.log` (or `kind`+`sha`); `status` ok/fail/abandoned, `rc` | adapter commands; `recover.sh` prints the command for a job whose end was never recorded |
 | `gate.end` | `gate{sha,pass,fail,skip,log}`; `host` optional. A `gate.end` for a log also closes that log's `remote.start` | the project's gate command — **the only writer** |
 | `executor.waiting` | `remote{log,marker}` or `workers: [names]` | the executor, before ending a turn to wait |

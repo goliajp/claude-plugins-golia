@@ -9,6 +9,7 @@
 #
 # The kinds the recovery tools read, and what each must carry:
 #   remote.start      remote.kind= remote.log=  [remote.sha= remote.marker=<regexp of the terminal line> remote.host=]
+#                     [remote.pid=int: remote.pidStart= remote.launcher=int:]  — remote_run.sh adds these three
 #   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned]
 #   executor.waiting  remote.log= remote.marker= [remote.host=]   or   workers=list:<name>,<name>
 #   quota.hit         quota.resets=<epoch | ISO time | HH:MM local>  [quota.agent=<name or id>]

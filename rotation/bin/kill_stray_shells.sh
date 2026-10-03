@@ -22,11 +22,18 @@
 # after the shell exited is reported STALE and left alone — and the chain this
 # script runs under is never a victim.
 #
-# Manager mode (manager.active in the state directory): the process is shared,
-# so the project's remote reap command (ROTATION_REAP_REMOTE_CMD, a pattern
-# kill on the runner) is skipped — workers' remote jobs match the same
-# patterns. Registered pids are still reaped; they are this round's own.
-# Session mode runs the remote reap best-effort.
+# Runner jobs: in session mode, every remote.start of this round with no end
+# that registered remote.pid (remote_run.sh does) is ended on its runner by
+# that pid and its descendants, after the pid's start time is checked
+# (remote_kill.py builds the command). Nothing on a runner is ever selected
+# by a command-line pattern: the runner is shared, and on 2026-10-03 a
+# pattern meant for one project's orphans matched another session's batch
+# launcher and took 22 of its 30 jobs down. ROTATION_REAP_REMOTE_CMD, the
+# project's pattern reap of earlier kernels, is no longer run; a job without
+# a registered pid is left for a person to confirm.
+# Manager mode (manager.active in the state directory): the runner reap is
+# skipped and said so; registered local pids are still reaped, they are this
+# round's own.
 #
 # Inputs (set by trigger.sh): ROTATION_STATE_DIR, ROTATION_EVENTS_LOG (default
 # <state>/events.jsonl; HARDEV_EVENTS_LOG wins), ROTATION_REAP_ROTATION_ID
@@ -131,11 +138,17 @@ done <<EOF
 $registered
 EOF
 
+[ -z "${ROTATION_REAP_REMOTE_CMD:-}" ] || echo "IGNORED ROTATION_REAP_REMOTE_CMD: runner jobs are ended only by their registered remote.pid"
 if [ "$manager" -eq 1 ]; then
   echo "SKIP remote reap: manager mode ($state_dir/manager.active): the Claude process is shared, only registered pids were reaped"
-elif [ -n "${ROTATION_REAP_REMOTE_CMD:-}" ]; then
-  # project-side best-effort reap (the adapter's ROTATION_REAP_REMOTE_CMD; never blocks)
-  sh -c "$ROTATION_REAP_REMOTE_CMD" >/dev/null 2>&1 || true
+else
+  # best-effort: an unreachable runner or a pid that is no longer the job's never blocks the close
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    echo "REMOTE $(sh -c "$cmd" 2>&1 | tail -1)"
+  done <<EOF
+$(python3 "$(dirname "$0")/remote_kill.py" "$events" "$rid")
+EOF
 fi
 
 if [ "$killed" -eq 0 ]; then
