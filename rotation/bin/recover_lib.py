@@ -57,6 +57,9 @@ import subprocess
 import sys
 import time
 
+sys.dont_write_bytecode = True  # the kernel directory is the installed plugin; leave no __pycache__ in it
+from remote_kill import kill_command  # noqa: E402
+
 REPO = os.environ['ROTATION_REPO']
 EVENTS = os.environ['ROTATION_EVENTS_LOG']
 ROTATIONS = os.environ['ROTATION_ROTATIONS_LOG']
@@ -282,7 +285,8 @@ def open_remotes(events, probe):
         if k == 'remote.start':
             r = e.get('remote') or {}
             opened.append({'kind': r.get('kind'), 'sha': r.get('sha'), 'log': r.get('log'), 'marker': r.get('marker'),
-                           'host': r.get('host'), 'startedTs': e.get('ts'), 'startedAt': iso(e.get('ts')), 'rotationId': e.get('rotationId')})
+                           'host': r.get('host'), 'startedTs': e.get('ts'), 'startedAt': iso(e.get('ts')), 'rotationId': e.get('rotationId'),
+                           'pid': r.get('pid'), 'pidStart': r.get('pidStart'), 'launcher': r.get('launcher')})
         elif k in ('remote.end', 'gate.end'):
             r = e.get('remote') or e.get('gate') or {}
             if r.get('log'):
@@ -294,7 +298,33 @@ def open_remotes(events, probe):
         seen = marker_seen(o['log'], o['marker'], o['host']) if probe else None
         o['terminal'] = {True: 'seen', False: 'not-seen', None: 'unknown'}[seen]
         o['collect'] = collect_commands(o) if seen else []
+        o['local'] = launcher_state(o['launcher'])
+        o['orphan'] = o['local'] == 'gone'
+        o['cleanup'], o['cleanupNote'] = cleanup_hint(o) if o['orphan'] else (None, None)
     return opened
+
+
+def launcher_state(pid):
+    """the local process that held the job's ssh (remote.launcher): alive / gone / unrecorded; a pid this machine
+    has since given to another process reads as alive, which only ever withholds the orphan mark"""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return 'unrecorded'
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return 'gone'
+    except PermissionError:
+        return 'alive'
+    return 'alive'
+
+
+def cleanup_hint(job):
+    """(command, None) ending an orphaned job by the pid it registered, or (None, why there is none). Never a
+    command-line pattern: on a shared runner a pattern also matches other sessions' jobs and their launchers"""
+    cmd, why = kill_command(job['host'], job['pid'], job['pidStart'])
+    if cmd:
+        return cmd, None
+    return None, f"{why}: do not look for it by command-line pattern; confirm by hand whose process it is first"
 
 
 def remote_end_state(events, round_ts):
@@ -533,7 +563,7 @@ def decide(scene):
         if w['ahead'] or w['dirty']:
             left.append(f"worktree:{w['name']}(+{len(w['ahead'])}" + (f",dirty={w['dirty']}" if w['dirty'] else '') + ')')
     for r in scene['remotes']:
-        left.append(f"remote:{r['kind']}@{r['sha']}({r['terminal']})")
+        left.append(f"remote:{r['kind']}@{r['sha']}({r['terminal']}" + (',orphan?' if r.get('orphan') else '') + ')')
     for a in scene['agents']:
         if a is ex:
             continue
@@ -646,8 +676,15 @@ def print_scene(s):
     p(f"remote jobs with no recorded end: {len(s['remotes'])}")
     for o in s['remotes']:
         p(f"  kind={o['kind']} sha={o['sha']} log={o['log']} host={o['host'] or '—'} started={o['startedAt']} terminal={o['terminal']}")
+        if o.get('pid') is not None or o['local'] != 'unrecorded':
+            p(f"    registered pid={o['pid'] if o.get('pid') is not None else '—'} · local launcher {o['launcher'] or '—'} {o['local']}"
+              + (' · orphan?' if o['orphan'] else ''))
         for cmd in o.get('collect') or []:
             p(f"    collect: {cmd}")
+        if o['cleanup']:
+            p(f"    end it (its registered pid and descendants only): {o['cleanup']}")
+        elif o['cleanupNote']:
+            p(f"    end it: {o['cleanupNote']}")
     re_ = s.get('remoteEnd')
     if re_:
         p(f"last remote.end: {re_['at']} kind={re_['kind']} sha={re_['sha']} · executor moved since={'no' if re_['pending'] else 'yes (' + re_['movedBy'] + ')'}"

@@ -44,7 +44,7 @@ mkdir -p "$DEST" "$STATE"
 
 # the entry points a project calls by name; hooks and this script need no shim
 SHIMS="trigger.sh trig_gate.sh check.sh close_plan.sh close_verdict_fill.sh carry_stamp.sh recover.sh watchdog.sh
-event.sh agent_log.sh manager_log.sh report_save.sh adapter_run.sh doctor.sh stats.sh log.sh kill_stray_shells.sh"
+event.sh agent_log.sh manager_log.sh report_save.sh adapter_run.sh remote_run.sh doctor.sh stats.sh log.sh kill_stray_shells.sh"
 
 printf '%s\n' "$PLUGIN_ROOT" > "$DEST/kernel.path"
 echo "init: kernel.path → $PLUGIN_ROOT"

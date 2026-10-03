@@ -49,7 +49,7 @@ Sourced by the kernel with `PROJECT_DIR` set to the git top level; every value i
 | `ROTATION_CLOSE_SEGMENT_CMD` | yes | the close segment |
 | `ROTATION_BENCH_CMD` | yes | the bench (or any axis-reading producer) |
 | `ROTATION_AFTER_WRITE_CMD` | no | run after every row or event the kernel appends and at every turn end (a dashboard repack); must exit 0 |
-| `ROTATION_REAP_REMOTE_CMD` | no | best-effort cleanup on a runner when a round closes |
+| `ROTATION_REAP_REMOTE_CMD` | no | no longer run since kernel 1.1.5 (it was a pattern kill on a shared runner); the reaper prints `IGNORED` when it is set and ends runner jobs only by their registered `remote.pid` |
 | `ROTATION_REMOTE_PROBE_CMD` | no | output shown verbatim on the recovery page (what runs on the runner) |
 | `ROTATION_REMOTE_GREP_CMD` | no | `<cmd> <log> <marker> [host]`: exit 0 marker seen in the remote log · 1 not · other unknown. Not called for jobs recorded without a host |
 | `ROTATION_REMOTE_COLLECT_CMD` | no | `<cmd> <kind> <sha> <log> <host> <rid>`: prints the commands that collect a finished job's results, one per line |
@@ -75,6 +75,7 @@ Common to all four:
 
 - called with the single argument `--doctor-probe`, each must **exit 2 without doing anything**. `doctor.sh` calls them that way; it never runs the real thing. A usage check on the first argument (a sha must be hex, a segment name must be known, `-q` must be the only option) satisfies this naturally
 - `remote.host` absent or `null` means the job ran on this machine and `remote.log` is a local file
+- a job on a runner is started with `.claude/rotation/remote_run.sh <host> <command> <remote.start fields…>` (the shim): it holds the ssh, has the runner's shell print its own pid first, and records `remote.start` with the fields given plus `remote.host`, `remote.pid` (that shell; everything the job starts is under it), `remote.pidStart` (its `ps -o lstart`) and `remote.launcher` (the local pid holding the ssh). Those pids are the only way the kernel ever ends a runner job: the recovery page prints the command for an `orphan?` job, the trigger's reaper runs it. A runner is shared with other sessions, so nothing — kernel, adapter or person — selects a process there by a command-line pattern (`pkill -f`, a `pgrep -f` fed to a kill)
 - events are written with `.claude/rotation/event.sh` (the shim); nested fields as `gate=raw:{"sha":"…","pass":12,"fail":0,"skip":1,"log":"…","host":null}` or as dotted keys `remote.kind=gate remote.sha=…`
 - the close segment reads the verdict's `.json`: `checks[]` with `name`, `decision` (`run` / `carry` / `current`), `mode`, `stampFile`, `tool`; it runs the `run` ones, writes each stamp (`<stampFile>` under `ROTATION_STAMP_DIR`, five fixed keys plus the readings, full `headSha`) and appends the same line to `stamps.jsonl`
 
@@ -84,7 +85,7 @@ Common to all four:
 |---|---|
 | `gate.end` | the verdict's §1 and TRIG-8 (coverage); the plan (a fail turns a check sync); the manager's report check 3 |
 | `preflight.end` | the recovery page's activity; reserved for a per-commit coverage gate |
-| `remote.start` / `remote.end` | `recover.sh` (open jobs, `terminal=`), `watchdog.sh` (WAKE after a `remote.end`) |
+| `remote.start` / `remote.end` | `recover.sh` (open jobs, `terminal=`, `orphan?` and the command ending the job by `remote.pid`), `watchdog.sh` (WAKE after a `remote.end`), the trigger's reaper (open jobs of the round with a `remote.pid`, session mode) |
 | the stamps | TRIG-6, TRIG-7, the plan, the fill, `stats.sh --effect` |
 
 ## Overrides for tests
