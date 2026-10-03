@@ -28,7 +28,8 @@ rules (in addition to the rule files, never against them):
     - gate: `bash .claude/rotation/adapter_run.sh gate <HEAD>` (`ROTATION_GATE_CMD`; wrap it in `run_in_background: true`; exit 0 = no failures). **`gate.end` is written only on this path**; a range with substrate changes and no `gate.end` is red in the verdict and cannot close.
     - close segments: `bash .claude/rotation/adapter_run.sh close-segment <HEAD> <segment>|plan <verdict.json>` (`ROTATION_CLOSE_SEGMENT_CMD`)
     - bench: `bash .claude/rotation/adapter_run.sh bench <HEAD> [segment …]` (`ROTATION_BENCH_CMD`)
-    - any other remote job: `bash .claude/rotation/event.sh remote.start remote.kind=<kind> remote.sha=<sha> remote.log=<log on the runner> 'remote.marker=<regexp of the terminal line>' remote.host=<host>` before, and `event.sh remote.end remote.log=<the same log> remote.status=ok|fail` after
+    - any other remote job: `bash .claude/rotation/remote_run.sh <host> '<command>' remote.kind=<kind> remote.sha=<sha> remote.log=<log on the runner> 'remote.marker=<regexp of the terminal line>'` (it records `remote.start` with the pid the job runs under there), and `event.sh remote.end remote.log=<the same log> remote.status=ok|fail` after
+  - Ending a process on the runner: only a pid you registered (`remote.pid`, or one you wrote down when you started it) and its descendants — the command is on the `recover.sh` page. Never select one by command-line pattern (`pkill -f`, a `pgrep -f` fed to a kill): the runner is shared, and other sessions' jobs and launchers carry the same words. A process you cannot tie to your own registration stays; report it to the manager.
   - Pre-flight: `bash .claude/rotation/adapter_run.sh preflight [-q]` (`ROTATION_PREFLIGHT_CMD`); it records `preflight.end`.
   - Before ending a turn to wait for X: `bash .claude/rotation/event.sh executor.waiting remote.log=<log> 'remote.marker=<regexp>'` (a remote job) or `… executor.waiting workers=list:<name>,<name>` (workers). When X has happened and you have not moved, the manager wakes you.
   - Every background shell you start (`run_in_background: true`) begins with `bash .claude/rotation/event.sh process.start process.pid=int:$$ process.what=<label>`; record `… process.end process.pid=int:<pid>` when it finished on its own. The trigger's reaper ends the registered pids still alive and nothing else — an unregistered watcher outlives the round, and the manager's watchdog and other agents' shells are never touched.
@@ -42,6 +43,6 @@ commits: N (types …); closed: the three sha summaries
 gate: N/F/S ; sweep: <the sweep line verbatim> ; bench: <the axis reading line verbatim>
 stamps: {{STAMP_NAMES}} each with its sha
 workers: n=… landed=… resumes(429)=… worktrees_removed=yes/no scratch_removed=yes/no
-runner: <the reap / leftover-process check, e.g. `pgrep` on the runner = 0>
+runner: <the leftover-process check: your registered remote pids no longer running, or the project's probe>
 unverified / open: …
 inbox_ack: what was done about the operator's interjections

@@ -11,7 +11,10 @@
 # files, every other worktree with its commits ahead of the base branch, the
 # last five events, the registered agents (id, role, status, last event),
 # remote jobs that have a remote.start and no remote.end (with whether their
-# terminal marker is already in the remote log), commits on the main tree
+# terminal marker is already in the remote log; `orphan?` when the local
+# process that held the job's ssh, remote.launcher, is gone, with the command
+# that ends it by its registered remote.pid — or, with no pid registered, the
+# note to confirm by hand; never a command-line pattern), commits on the main tree
 # that no running executor accounts for, and the raw output of the
 # project's remote probe.
 #

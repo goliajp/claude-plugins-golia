@@ -45,8 +45,9 @@ export ROTATION_BENCH_CMD="${ROTATION_BENCH_CMD:-$PROJECT_DIR/.dev/rotation/bin/
 # ── optional hooks ─────────────────────────────────────────────────────
 # after the kernel appended a row or an event (a dashboard repack, say); must always exit 0
 # export ROTATION_AFTER_WRITE_CMD="$PROJECT_DIR/.dev/rotation/bin/repack.sh"
-# best-effort cleanup on the runner when a rotation closes (processes the executor may have left)
-# export ROTATION_REAP_REMOTE_CMD='ssh -o BatchMode=yes <runner> "pkill -f <pattern>; true"'
+# runner jobs: start them with .claude/rotation/remote_run.sh <host> <command> <remote.start fields...>,
+# which records the pid they run under; the kernel ends a runner job only by that pid and its
+# descendants, never by a command-line pattern (the runner is shared with other sessions)
 
 # ── interruption recovery (recover.sh / watchdog.sh) ───────────────────
 # a project with no remote runner leaves all three unset: jobs recorded without a host are read locally
