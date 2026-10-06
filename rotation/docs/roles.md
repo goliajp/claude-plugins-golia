@@ -92,7 +92,7 @@ The manager's `recover.sh` and `watchdog.sh` read **only** events; what is not r
 
 ### After a restart (the manager sends "Session restarted")
 
-Background tasks and worker processes are gone. `recover.sh` first; workers registered with an id are continued by `SendMessage` to that id (context kept) and re-spawned from the commits in their worktree only when that fails; a remote job with `remote.start` and no `remote.end` is collected or waited for according to the page's `terminal=` column, never restarted while it may still be running.
+Background tasks and worker processes are gone. `recover.sh` first; agents without isolation (research, reviewer) are continued by `SendMessage` to their id (context kept); a worktree worker is never sent a message — it is re-spawned as a fresh `isolation: worktree` worker that cherry-picks the commits of its old branch `worktree-agent-<id>` first (a `SendMessage` to a worktree agent moves the sender's working directory into that worktree and locks it out of the main tree until the agent's next completion); a remote job with `remote.start` and no `remote.end` is collected or waited for according to the page's `terminal=` column, never restarted while it may still be running.
 
 ### The report (≤ 60 lines, the last message; first line fixed)
 
