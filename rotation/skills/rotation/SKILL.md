@@ -23,11 +23,11 @@ The round: read `.claude/handoff.md` in full → ship the next items in order �
 - Before ending a turn to wait: `bash .claude/rotation/event.sh executor.waiting remote.log=<log> 'remote.marker=<regexp>'` or `… executor.waiting workers=list:<name>,<name>`.
 - Every background shell you start begins with `bash .claude/rotation/event.sh process.start process.pid=int:$$ process.what=<label>`; `… process.end process.pid=int:<pid>` when it finished on its own. Only registered pids are reaped at the trigger.
 - A rate limit you stop for: `event.sh quota.hit quota.resets=<time> quota.agent=<id>`.
-- After "Session restarted": `bash .claude/rotation/recover.sh` first; continue registered workers by `SendMessage <id>`; never restart a remote job whose end is not on record while its log has no terminal marker.
+- After "Session restarted": `bash .claude/rotation/recover.sh` first; continue non-isolated agents by `SendMessage <id>`; a worktree worker is re-spawned fresh from its branch `worktree-agent-<id>` — **never `SendMessage` a worktree agent** (the sender's cwd becomes that worktree, main-tree git is refused until the agent's next completion); never restart a remote job whose end is not on record while its log has no terminal marker.
 
 ## Workers
 
-Implementation workers: `isolation: worktree`, first step `git merge --ff-only <base branch>`, commits with an `Agent-Origin: <name>` trailer kept in the worktree; you `cherry-pick --no-commit`, take a reviewer agent's conclusion, land as your own commits (the trailer never reaches the base branch — TRIG-1 does not count it). Research / reviewer agents: no isolation, told read-only in their prompt. **No subagent writes to the main tree**; a stray file there is yours to clean. Every worker has ended before you close. After `SendMessage` to a worktree subagent, check once that your cwd is the main tree.
+Implementation workers: `isolation: worktree`, first step `git merge --ff-only <base branch>`, commits with an `Agent-Origin: <name>` trailer kept in the worktree; you `cherry-pick --no-commit`, take a reviewer agent's conclusion, land as your own commits (the trailer never reaches the base branch — TRIG-1 does not count it). Research / reviewer agents: no isolation, told read-only in their prompt. **No subagent writes to the main tree**; a stray file there is yours to clean. Every worker has ended before you close. Never `SendMessage` a worktree subagent (not for 429, not for a stopped turn): spawn a fresh one from its branch instead.
 
 ## Report (last message, ≤ 60 lines, first line fixed)
 

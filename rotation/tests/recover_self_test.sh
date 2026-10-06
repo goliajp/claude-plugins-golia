@@ -608,6 +608,14 @@ out=$(run "$BIN/recover.sh" --no-probe)
 expect_has "dead?: the agent line shows the transcript state and its age" "$out" "transcript=dead? (25 min since written)"
 expect_has "dead?: the page says what to do, with the id, the session and the task" "$out" "dead? w9: its transcript $TMP/cfg-b/projects/-x-repo/sess-A/subagents/agent-ag-w9.jsonl"
 expect_has "dead?: continue or end and re-dispatch" "$out" "continue it (SendMessage to ag-w9, from session sess-A)"
+expect_has "dead?: a worker without a worktree may be continued by SendMessage" "$out" "continue it (SendMessage to ag-w9"
+# a dead? worker WITH a worktree is never continued by SendMessage: re-spawn from its branch
+ev 450 agent.start "$(agent w10 worker '"id":"ag-w10","worktree":"/x/repo/.claude/worktrees/agent-ag-w10"')"
+tr_file "$TMP/cfg-b" sess-A ag-w10 1500
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "dead? worktree worker: re-spawn from its branch" "$out" "dispatch a fresh isolated worker that first cherry-picks the commits of branch agent-ag-w10"
+expect_has "dead? worktree worker: says why SendMessage is out" "$out" "do not SendMessage a worktree agent"
+[[ "$out" == *"SendMessage to ag-w10"* ]] && fail "dead? worktree worker must not be offered SendMessage" || pass "dead? worktree worker is not offered SendMessage"
 expect_eq "--json carries the transcript state" \
   "$(run "$BIN/recover.sh" --json --no-probe | python3 -c 'import json,sys; w=json.load(sys.stdin)["workers"]; print(w[0]["name"], w[0]["transcript"]["state"], w[0]["transcript"]["session"])')" "w9 dead? sess-A"
 out=$(watch); rc=$?

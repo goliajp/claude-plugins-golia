@@ -652,9 +652,14 @@ def print_scene(s):
             continue
         p(f"  dead? {a['name']}: its transcript {t['path']} has not been written for {t['age'] // 60} min "
           f"(ROTATION_WORKER_STALE={s['workerStale']} s) while it is still registered as running. Tell the executor: "
-          f"continue it (SendMessage to {a['id']}, from session {t['session']}), or record its end "
-          f"(ROTATION_AGENT_STATUS=abandoned agent_log.sh end {a['name']} {a['role']} {a.get('model') or '-'}) and dispatch "
-          f"its task again: {a.get('task') or '—'}" + (f" · worktree {a['worktree']}" if a.get('worktree') else '')
+          + (f"record its end (ROTATION_AGENT_STATUS=abandoned agent_log.sh end {a['name']} {a['role']} {a.get('model') or '-'}) "
+             f"and dispatch a fresh isolated worker that first cherry-picks the commits of branch {os.path.basename(a['worktree'])} "
+             f"(do not SendMessage a worktree agent: the sender's working directory becomes that worktree)"
+             if a.get('worktree') else
+             f"continue it (SendMessage to {a['id']}, from session {t['session']}), or record its end "
+             f"(ROTATION_AGENT_STATUS=abandoned agent_log.sh end {a['name']} {a['role']} {a.get('model') or '-'}) and dispatch "
+             f"its task again")
+          + f": {a.get('task') or '—'}" + (f" · worktree {a['worktree']}" if a.get('worktree') else '')
           + (f" · relayed {iso(t['relayedTs'])} (manager.resume; no WAKE until it is written again and stops again)"
              if t['relayedTs'] else ''))
     ex_names = ', '.join(f"{a['name']}({a.get('id') or 'no-id'})" for a in s['executors'])
