@@ -150,6 +150,9 @@ MESSAGES = {
                           "the next rotation does not close until it is handled.",
     "results_amber": "To attribute (amber): {items}",
     "results_none": "No regressions.",
+    # fill: a `<key>:notice[:<label>]` entry names what the stamp lists under key, without judging it
+    "notice_item": "{label}: {items}",
+    "results_notices": "Listed, not judged: {items}",
     "h_release": "## 4 Release",
     "release_form": "Form: **{word}** (`{form}`)",
     "release_sync": "- sync (blocking, the next rotation opens after): {items}",
@@ -296,7 +299,7 @@ def match_paths(files, inc, exc):
     return hits
 
 
-REGRESS_OPS = ("down", "up", "nonzero", "each-up")
+REGRESS_OPS = ("down", "up", "nonzero", "each-up", "notice")
 
 
 def regress_spec_error(spec):
@@ -305,6 +308,8 @@ def regress_spec_error(spec):
     name, *params = op.split(":")
     if not key or name not in REGRESS_OPS:
         return f"want <key>:{'|'.join(REGRESS_OPS)}"
+    if name == "notice":
+        return "notice takes at most one label" if len(params) > 1 or spec.startswith("~") else None
     if name != "each-up":
         return "takes no parameters" if params else None
     if not 1 <= len(params) <= 3 or any(num(x) is None or num(x) < 0 for x in params):
@@ -707,7 +712,7 @@ def fill(rid):
         die(f"no verdict for {rid} at {json_path}")
     history = read_jsonl(STAMP_HISTORY)
     head = v["headSha"]
-    red, amber = [], []
+    red, amber, notices = [], [], []
     cov = (v.get("changes") or {}).get("gateCoverage") or {}
     if cov.get("missing"):
         red.append(msg("red_gate_missing", n=cov["substrateFiles"]))
@@ -742,6 +747,14 @@ def fill(rid):
         for spec in r["regress"]:
             level = "amber" if spec.startswith("~") else "red"
             key, _, op = spec.lstrip("~").partition(":")
+            if op.split(":")[0] == "notice":
+                # a list the stamp names (new coverage, say) is reported by name and decides nothing
+                items = dig(doc, key)
+                items = [items] if isinstance(items, str) else items
+                if isinstance(items, list) and items:
+                    label = op.split(":", 1)[1] if ":" in op else key
+                    notices.append(msg("notice_item", label=label, items=join_names(str(x) for x in items)))
+                continue
             if op.startswith("each-up"):
                 for name, pv, cv in (each_up(dig(doc, key), dig(prev, key), op.split(":")[1:]) if prev else []):
                     flags.append({"level": level, "key": f"{key}.{name}", "value": cv, "previous": pv, "op": "each-up"})
@@ -770,7 +783,7 @@ def fill(rid):
         c["result"] = {"status": status, "stampSha": sha, "ranAt": doc.get("ranAt"), "carriedTo": doc.get("carriedTo"),
                        "carriedReason": doc.get("carriedReason"), "elapsedSec": doc.get("elapsedSec"), "verdict": verdict,
                        "previousSha": prev.get("headSha") if prev else None, "readings": readings, "flags": flags}
-    v["results"] = {"filledAt": now_iso(), "red": red, "amber": amber}
+    v["results"] = {"filledAt": now_iso(), "red": red, "amber": amber, "notices": notices}
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(v, f, ensure_ascii=False, indent=1)
         f.write("\n")
@@ -788,6 +801,8 @@ def fill(rid):
         print(f"  RED   {x}")
     for x in amber:
         print(f"  amber {x}")
+    for x in notices:
+        print(f"  note  {x}")
     return v
 
 
@@ -832,6 +847,8 @@ def render_results(v):
         out += [msg("results_amber", items=join_sentences(res["amber"])), ""]
     if not res.get("red") and not res.get("amber"):
         out += [msg("results_none"), ""]
+    if res.get("notices"):
+        out += [msg("results_notices", items=join_sentences(res["notices"])), ""]
     out.append(RESULTS_END)
     return "\n".join(out)
 
