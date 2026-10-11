@@ -514,5 +514,20 @@ sed 's/medianVsBunAot	-$/medianVsBunAot	cells:each-up/' "$TMP/rules.tsv" > "$TMP
 out=$(RULES="$TMP/rules-badop2.tsv" run_plan "$B0" "$E2" --force); rc=$?
 check "23b each-up without its bar → exit 2" "$out" "$rc" 2 'each-up takes <rel>'
 
+# 24 — `notice` lists what the stamp names and judges nothing: no red, no amber, the names in the summary
+sed 's/medianVsBunAot	-$/medianVsBunAot	newCells:notice:new coverage/' "$TMP/rules.tsv" > "$TMP/rules-notice.tsv"
+out=$(RULES="$TMP/rules-notice.tsv" run_plan "$B0" "$E2" --force); rc=$?
+check "24p plan with a notice row" "$out" "$rc" 0 'run=\['
+printf '{"tool":"bench","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","headShaSource":"arg","verdict":"ok","medianVsBunAot":0.5,"newCells":["p","q"]}\n' "$E2" > "$TMP/stamps/bench-latest.json"
+out=$(RULES="$TMP/rules-notice.tsv" run_fill r-test-1); rc=$?
+check "24q a listed name is a note, not a flag" "$out" "$rc" 0 'red=0 amber=0' 'note +new coverage: p, q'
+printf '{"tool":"bench","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","headShaSource":"arg","verdict":"ok","medianVsBunAot":0.5,"newCells":[]}\n' "$E2" > "$TMP/stamps/bench-latest.json"
+out=$(RULES="$TMP/rules-notice.tsv" run_fill r-test-1); rc=$?
+printf '%s\n' "$out" | grep -q 'note ' && { echo "FAIL 24r an empty list was noted"; fail=$(( fail + 1 )); } \
+  || { echo "ok   24r an empty list is not noted"; pass=$(( pass + 1 )); }
+sed 's/medianVsBunAot	-$/medianVsBunAot	~newCells:notice/' "$TMP/rules.tsv" > "$TMP/rules-badnotice.tsv"
+out=$(RULES="$TMP/rules-badnotice.tsv" run_plan "$B0" "$E2" --force); rc=$?
+check "24s an amber notice is refused → exit 2" "$out" "$rc" 2 'notice takes'
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
