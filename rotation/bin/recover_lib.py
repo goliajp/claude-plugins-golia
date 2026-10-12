@@ -734,22 +734,27 @@ def watch(stale, wake, dirty_age, floor):
     if q and q['pending'] and q['due']:
         return 'QUOTA', f"QUOTA resets={q['resetsAt']} passed, no event since {q['at']} · agent={q['agent'] or who}"
 
+    # a worker / reviewer / research agent of this round still registered as running whose transcript was written
+    # within --wake seconds: the executor is waiting on it in a foreground call, which records no event and leaves
+    # the executor's own transcript untouched, so its silence is no stop
+    workers = worker_states(agents, now, events, rnd['ts'])
+    live = [a for a in workers if a['transcript']['age'] is not None and a['transcript']['age'] < wake]
+
     w = waiting_state(events)
-    if w and w['pending'] and w['satisfied'] and now - (w['refTs'] or 0) >= wake:
+    if w and w['pending'] and w['satisfied'] and not live and now - (w['refTs'] or 0) >= wake:
         what = f"workers={','.join(w['workers'])}" if w.get('workers') else f"remote={w['remote'].get('log')}"
         return 'WAKE', f"WAKE {what} is done, executor silent {now - w['refTs']} s since {iso(w['refTs'])} · agent={who}"
 
     # the same without an executor.waiting on record: a remote job of this round ended and nothing followed
     re_ = remote_end_state(events, rnd['ts'])
-    if re_ and re_['pending'] and now - (re_['refTs'] or 0) >= wake:
+    if re_ and re_['pending'] and not live and now - (re_['refTs'] or 0) >= wake:
         since = f"manager.resume {iso(re_['refTs'])}" if re_['resumed'] else f"remote.end {re_['at']}"
         return 'WAKE', (f"WAKE remote.end kind={re_['kind']} sha={re_['sha']} log={re_['log']} is on record and no executor event followed "
                         f"for {now - re_['refTs']} s since {since} · agent={who}")
 
     # a worker the executor is waiting on whose transcript stopped: the executor would wait for it forever
     # once relayed (a manager.resume after it went dead?) it stays quiet until its transcript moves and stops again
-    dead = [a for a in worker_states(agents, now, events, rnd['ts'])
-            if a['transcript']['state'] == 'dead?' and not a['transcript']['relayedTs']]
+    dead = [a for a in workers if a['transcript']['state'] == 'dead?' and not a['transcript']['relayedTs']]
     if dead:
         names = ','.join(f"{a['name']}({a.get('id')},{a['transcript']['age']}s)" for a in dead)
         return 'WAKE', (f"WAKE dead? worker(s) {names}: transcript not written for ≥ {WORKER_STALE} s while still registered "
@@ -770,11 +775,15 @@ def watch(stale, wake, dirty_age, floor):
             return 'DIRTY', f"DIRTY n={len(late)} files={names} · last executor event {iso(last_act)} · agent={who}"
 
     act = activity(events, worktrees(base_branch()))
-    ref = max(act['ts'] or 0, floor)
+    # a running worker's transcript write is a sign of life as much as an event or a commit
+    marks = [(act['what'], act['ts'] or 0)] + [(f"transcript of {a['name']}", a['transcript']['mtime'])
+                                               for a in workers if a['transcript']['mtime'] is not None]
+    what, last = max(marks, key=lambda m: m[1])
+    ref = max(last, floor)
     if ref and now - ref >= stale:
-        what = act['what'] if (act['ts'] or 0) >= floor else 'watchdog start'
+        what = what if last >= floor else 'watchdog start'
         return 'STALE', f"STALE no event and no commit for {now - ref} s (last: {what} at {iso(ref)}) · agent={who}"
-    return None, f"OK {iso(now)} last_activity={act['at']}"
+    return None, f"OK {iso(now)} last_activity={iso(last) if last else None}" + (f" live_workers={','.join(a['name'] for a in live)}" if live else '')
 
 
 def main(argv):
