@@ -28,7 +28,6 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_AXIS_STAMP` | no | — | the stamp the axis reading is rendered from (TRIG-5) |
 | `ROTATION_CLOSE_RULES` | yes | — | the rules table path (relative to the project root allowed); empty table = exit 2 |
 | `ROTATION_CLOSE_CHECKS_OFF` | no | — | rows dropped before planning, comma-separated; an unknown name = exit 2 |
-| `ROTATION_WAKE_AFTER` | no | 300 | seconds of executor silence after a `remote.end` before the watchdog's WAKE |
 | `ROTATION_WORKER_STALE` | no | 1200 | seconds a worker still registered as running may go without its transcript being written before it is `dead?` (recover page) and a WAKE (watchdog) |
 | `ROTATION_MESSAGES` | no | — | a `key=value` file overriding the verdict's human-read strings |
 

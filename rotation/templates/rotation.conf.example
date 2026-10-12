@@ -53,9 +53,6 @@ ROTATION_SWEEP_STAMP=sweep
 ROTATION_CLOSE_RULES=.claude/rotation/close_rules.tsv
 # rows of that table switched off (comma-separated check names): dropped before planning, in no verdict
 # ROTATION_CLOSE_CHECKS_OFF=
-# watchdog: seconds after a remote.end of this round with no executor event (and no commit) before WAKE;
-# a manager.resume restarts the clock. Kernel default 300
-ROTATION_WAKE_AFTER=300
 # recover / watchdog: seconds a worker still registered as running may go without its transcript being written
 # before it is `dead?` on the recover page and a WAKE for the watchdog. Kernel default 1200
 ROTATION_WORKER_STALE=1200

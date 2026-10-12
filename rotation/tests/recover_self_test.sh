@@ -177,7 +177,7 @@ ev 400 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\"
 out=$(watch); expect_eq "WAKE: remote.end 400 s ago, no event since → exit 10" "$?" "10"
 expect_has "WAKE line names the ended job" "$out" "WAKE remote.end kind=close.checks sha=abc log=$TMP/seg.log is on record and no executor event followed for"
 expect_has "WAKE line says the clock started at the remote.end" "$out" " s since remote.end "
-expect_has "recover shows the silence after the remote.end" "$(run "$BIN/recover.sh")" " kind=close.checks sha=abc · executor moved since=no · wake after 300 s"
+expect_has "recover shows the silence after the remote.end" "$(run "$BIN/recover.sh")" " kind=close.checks sha=abc · executor moved since=no"
 reset
 ev 100 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\":\"$TMP/seg.log\",\"status\":\"ok\"}"
 watch >/dev/null; expect_eq "no WAKE inside the 300 s default" "$?" "0"
@@ -207,12 +207,15 @@ ev 7200 remote.end "\"remote\":{\"kind\":\"gate\",\"sha\":\"old\",\"log\":\"$TMP
 ev 100 preflight.end '"preflight":{"result":"PASS"}'
 watch >/dev/null; expect_eq "a remote.end from before this round is not a WAKE" "$?" "0"
 expect_has "recover says the round has no remote.end" "$(run "$BIN/recover.sh")" "last remote.end: none this round"
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAKE_AFTER=1000\n' > "$TMP/wake.conf"
+# --wake is the one wait after a remote.end too; ROTATION_WAKE_AFTER is read from neither the conf nor the environment
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAKE_AFTER=1\n' > "$TMP/wake.conf"
 reset
 ev 400 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\":\"$TMP/seg.log\",\"status\":\"ok\"}"
-CONF="$TMP/wake.conf" watch >/dev/null; expect_eq "ROTATION_WAKE_AFTER=1000 in the conf: 400 s is not yet a WAKE" "$?" "0"
-expect_has "recover shows the configured wait" "$(CONF="$TMP/wake.conf" run "$BIN/recover.sh")" "wake after 1000 s"
-ROTATION_WAKE_AFTER=1 watch >/dev/null 2>&1; expect_eq "ROTATION_WAKE_AFTER from the environment is ignored (conf-only): still a WAKE at 300" "$?" "10"
+watch --wake 1000 >/dev/null; expect_eq "--wake 1000: 400 s after a remote.end is not yet a WAKE" "$?" "0"
+out=$(watch --wake 350); expect_eq "--wake 350: 400 s after a remote.end is a WAKE" "$?" "10"
+expect_has "the --wake WAKE counts from the remote.end" "$out" "WAKE remote.end kind=close.checks sha=abc"
+CONF="$TMP/wake.conf" watch --wake 1000 >/dev/null; expect_eq "ROTATION_WAKE_AFTER=1 in the conf is not read: --wake 1000 holds" "$?" "0"
+ROTATION_WAKE_AFTER=1 watch --wake 1000 >/dev/null 2>&1; expect_eq "ROTATION_WAKE_AFTER=1 in the environment is not read: --wake 1000 holds" "$?" "0"
 
 reset
 ev 900 agent.start "$(agent w1 worker)"
@@ -615,7 +618,7 @@ tr_file "$TMP/cfg-b" sess-A ag-w10 1500
 out=$(run "$BIN/recover.sh" --no-probe)
 expect_has "dead? worktree worker: re-spawn from its branch" "$out" "dispatch a fresh isolated worker that first cherry-picks the commits of branch agent-ag-w10"
 expect_has "dead? worktree worker: says why SendMessage is out" "$out" "do not SendMessage a worktree agent"
-[[ "$out" == *"SendMessage to ag-w10"* ]] && fail "dead? worktree worker must not be offered SendMessage" || pass "dead? worktree worker is not offered SendMessage"
+expect_not "dead? worktree worker is not offered SendMessage" "$out" "SendMessage to ag-w10"
 expect_eq "--json carries the transcript state" \
   "$(run "$BIN/recover.sh" --json --no-probe | python3 -c 'import json,sys; w=json.load(sys.stdin)["workers"]; print(w[0]["name"], w[0]["transcript"]["state"], w[0]["transcript"]["session"])')" "w9 dead? sess-A"
 out=$(watch); rc=$?
@@ -809,6 +812,57 @@ ev 3500 rotation.end '"trigger":"self"'
 ev 900 remote.start "\"remote\":{\"kind\":\"gate\",\"sha\":\"o4\",\"log\":\"$TMP/o4.log\",\"marker\":\"DONE\",\"host\":\"h\"}"
 expect_eq "recover: no launcher on record → not marked" "$(run "$BIN/recover.sh" --no-probe | tail -1)" "RESPAWN executor leftover=remote:gate@o4(unknown)"
 { kill "$victim" "$live"; wait "$victim" "$live"; } 2>/dev/null
+
+# ── a running worker whose transcript is being written: the executor is waiting on it, not stopped ──
+# the executor polls its workers in one foreground tool call, which records no event and leaves its own
+# transcript alone; a worker / reviewer / research transcript written within --wake seconds answers both WAKEs
+# and counts as a sign of life for STALE. The main tree's HEAD goes back to the day-old commit first, so a fresh
+# commit answers nothing here.
+g reset -q --hard HEAD~1
+live_round() {  # live_round <worker name> <role>: the executor (session sess-A) and one running agent of this round
+  reset
+  ev 3500 rotation.end '"trigger":"self"'
+  ev 3000 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+  ev 2900 agent.start "$(agent "$1" "$2" "\"id\":\"ag-$1\"")"
+}
+live_round w5 worker
+ev 400 remote.end "\"remote\":{\"kind\":\"gate\",\"sha\":\"abc\",\"log\":\"$TMP/gate-abc.log\",\"status\":\"ok\"}"
+tr_file "$TMP/cfg-b" sess-A ag-w5 30
+out=$(watch); expect_eq "remote.end 400 s ago, worker transcript written 30 s ago: no WAKE" "$?" "0"
+expect_has "the OK line names the live worker" "$out" "live_workers=w5"
+tr_file "$TMP/cfg-b" sess-A ag-w5 400
+out=$(watch); expect_eq "the worker's transcript is as old as the remote.end (400 s ≥ --wake 300): WAKE" "$?" "10"
+expect_has "that WAKE is the remote.end one" "$out" "WAKE remote.end kind=gate sha=abc"
+watch --wake 500 >/dev/null; expect_eq "the same under --wake 500: no WAKE" "$?" "0"
+live_round r5 reviewer
+ev 400 remote.end "\"remote\":{\"kind\":\"gate\",\"sha\":\"abc\",\"log\":\"$TMP/gate-abc.log\",\"status\":\"ok\"}"
+tr_file "$TMP/cfg-b" sess-A ag-r5 30
+watch >/dev/null; expect_eq "a running reviewer whose transcript is being written counts the same: no WAKE" "$?" "0"
+# a satisfied executor.waiting: the listed worker ended, another one still writes
+live_round w5 worker
+ev 2800 agent.start "$(agent w6 worker '"id":"ag-w6"')"
+ev 2700 executor.waiting '"workers":["w6"]'
+ev 2000 agent.end "$(agent w6 worker '"id":"ag-w6","status":"ok"')"
+tr_file "$TMP/cfg-b" sess-A ag-w5 30
+watch >/dev/null; expect_eq "awaited worker ended, another running worker writes: no WAKE" "$?" "0"
+tr_file "$TMP/cfg-b" sess-A ag-w5 400
+out=$(watch); expect_eq "awaited worker ended, the other one silent 400 s: WAKE" "$?" "10"
+expect_has "that WAKE is the executor.waiting one" "$out" "WAKE workers=w6 is done"
+# an ended worker writing its transcript is no sign that the executor waits on it
+live_round w5 worker
+ev 2500 agent.end "$(agent w5 worker '"id":"ag-w5","status":"ok"')"
+ev 400 remote.end "\"remote\":{\"kind\":\"gate\",\"sha\":\"abc\",\"log\":\"$TMP/gate-abc.log\",\"status\":\"ok\"}"
+tr_file "$TMP/cfg-b" sess-A ag-w5 30
+watch >/dev/null; expect_eq "an ended worker's fresh transcript does not hold off the WAKE" "$?" "10"
+# STALE: every event and commit is old; a running worker's transcript write is the last sign of life
+live_round w5 worker
+tr_file "$TMP/cfg-b" sess-A ag-w5 60
+out=$(watch); expect_eq "events 2900 s old, the worker wrote 60 s ago: no STALE" "$?" "0"
+tr_file "$TMP/cfg-b" sess-A ag-w5 1100
+out=$(watch --stale 1000); expect_eq "the worker's transcript is 1100 s old: STALE under --stale 1000" "$?" "11"
+expect_has "the STALE line names the transcript as the last sign of life" "$out" "(last: transcript of w5 at "
+rm -rf "$TMP/cfg-b"
+watch >/dev/null; expect_eq "no transcript found and every event 2900 s old: STALE" "$?" "11"
 
 echo
 echo "recover_self_test: $pass passed, $fail failed"

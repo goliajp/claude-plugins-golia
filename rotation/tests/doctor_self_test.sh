@@ -129,12 +129,12 @@ set_key _ ROTATION_TRIG2_MEASURE bogus
 set_key _ ROTATION_TRIG1A_MODE sometimes
 set_key _ ROTATION_TRIG8_GATE_COVERAGE yes
 set_key _ ROTATION_TRIG2_MIN_WALL_SEC 30m
-set_key _ ROTATION_WAKE_AFTER 5min
+set_key _ ROTATION_WORKER_STALE 5min
 set_key _ ROTATION_AXES ' , '
 drop_key _ ROTATION_STAMPS
 out=$(doctor); rc=$?
 expect_eq "3 illegal values: exit 1" "$rc" 1
-expect_has "3 non-integer wake wait named" "$out" '^FAIL conf.ROTATION_WAKE_AFTER must be an integer when set, got .5min.'
+expect_has "3 non-integer worker wait named" "$out" '^FAIL conf.ROTATION_WORKER_STALE must be an integer when set, got .5min.'
 expect_has "3 TRIG2_MEASURE named" "$out" '^FAIL conf.ROTATION_TRIG2_MEASURE must be trigger or active, got .bogus.'
 expect_has "3 TRIG1A_MODE named" "$out" '^FAIL conf.ROTATION_TRIG1A_MODE must be enforce or observe'
 expect_has "3 TRIG8 named" "$out" '^FAIL conf.ROTATION_TRIG8_GATE_COVERAGE must be on or off'
@@ -163,6 +163,15 @@ set_key _ ROTATION_CONF_KERNEL "${KERNEL_VERSION%%.*}.$KERNEL_MINOR"
 out=$(doctor); rc=$?
 expect_eq "5 same minor spelled out: exit 0" "$rc" 0
 expect_has "5 PASS conf.kernel" "$out" '^PASS conf.kernel'
+# a conf still setting the removed wake key: a warning naming the flag that replaced it, not a failure
+setup oldwake
+set_key _ ROTATION_WAKE_AFTER 300
+out=$(doctor); rc=$?
+expect_eq "5 ROTATION_WAKE_AFTER left in the conf: exit 0" "$rc" 0
+expect_has "5 WARN names --wake" "$out" '^WARN conf.ROTATION_WAKE_AFTER is no longer read: watchdog.sh --wake'
+setup nowake
+out=$(ROTATION_WAKE_AFTER=300 doctor)
+expect_not "5 the key in the environment only: no warning" "$out" 'ROTATION_WAKE_AFTER'
 
 # ── 6. a required command not registered ────────────────────────────────
 setup nogate
