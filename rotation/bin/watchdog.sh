@@ -12,14 +12,18 @@
 #                             the executor has recorded nothing since, and --wake seconds passed
 #                             — or the round's last remote.end was followed by no executor event and
 #                             no commit for --wake seconds (a manager.resume restarts that clock)
+#                             — neither of these two while a worker / reviewer / research agent of this
+#                             round still registered as running wrote its transcript within --wake
+#                             seconds: the executor is polling it in a foreground call and records nothing
 #                             — or a worker of this round still registered as running has a
 #                             transcript not written for ROTATION_WORKER_STALE seconds (rotation.conf,
 #                             default 1200): the executor would wait for a dead agent forever. A
 #                             manager.resume recorded after the worker went dead? silences it until its
 #                             transcript is written again and then stops for that long once more
 #   STALE          (exit 11)  no sign of life for --stale seconds: the latest of the last event, the
-#                             main tree's HEAD commit and the newest commit in any worktree (and
-#                             never earlier than this watchdog's start)
+#                             main tree's HEAD commit, the newest commit in any worktree and the last
+#                             transcript write of a running agent of this round (and never earlier than
+#                             this watchdog's start)
 #   QUOTA          (exit 12)  the last quota.hit's reset time has passed and neither an executor event nor a
 #                             manager.resume followed it (the manager's own segments and other manager.*
 #                             events do not count, for WAKE either)
