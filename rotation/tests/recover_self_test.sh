@@ -177,7 +177,7 @@ ev 400 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\"
 out=$(watch); expect_eq "WAKE: remote.end 400 s ago, no event since → exit 10" "$?" "10"
 expect_has "WAKE line names the ended job" "$out" "WAKE remote.end kind=close.checks sha=abc log=$TMP/seg.log is on record and no executor event followed for"
 expect_has "WAKE line says the clock started at the remote.end" "$out" " s since remote.end "
-expect_has "recover shows the silence after the remote.end" "$(run "$BIN/recover.sh")" " kind=close.checks sha=abc · executor moved since=no · wake after 300 s"
+expect_has "recover shows the silence after the remote.end" "$(run "$BIN/recover.sh")" " kind=close.checks sha=abc · executor moved since=no"
 reset
 ev 100 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\":\"$TMP/seg.log\",\"status\":\"ok\"}"
 watch >/dev/null; expect_eq "no WAKE inside the 300 s default" "$?" "0"
@@ -207,12 +207,15 @@ ev 7200 remote.end "\"remote\":{\"kind\":\"gate\",\"sha\":\"old\",\"log\":\"$TMP
 ev 100 preflight.end '"preflight":{"result":"PASS"}'
 watch >/dev/null; expect_eq "a remote.end from before this round is not a WAKE" "$?" "0"
 expect_has "recover says the round has no remote.end" "$(run "$BIN/recover.sh")" "last remote.end: none this round"
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAKE_AFTER=1000\n' > "$TMP/wake.conf"
+# --wake is the one wait after a remote.end too; ROTATION_WAKE_AFTER is read from neither the conf nor the environment
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAKE_AFTER=1\n' > "$TMP/wake.conf"
 reset
 ev 400 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\":\"$TMP/seg.log\",\"status\":\"ok\"}"
-CONF="$TMP/wake.conf" watch >/dev/null; expect_eq "ROTATION_WAKE_AFTER=1000 in the conf: 400 s is not yet a WAKE" "$?" "0"
-expect_has "recover shows the configured wait" "$(CONF="$TMP/wake.conf" run "$BIN/recover.sh")" "wake after 1000 s"
-ROTATION_WAKE_AFTER=1 watch >/dev/null 2>&1; expect_eq "ROTATION_WAKE_AFTER from the environment is ignored (conf-only): still a WAKE at 300" "$?" "10"
+watch --wake 1000 >/dev/null; expect_eq "--wake 1000: 400 s after a remote.end is not yet a WAKE" "$?" "0"
+out=$(watch --wake 350); expect_eq "--wake 350: 400 s after a remote.end is a WAKE" "$?" "10"
+expect_has "the --wake WAKE counts from the remote.end" "$out" "WAKE remote.end kind=close.checks sha=abc"
+CONF="$TMP/wake.conf" watch --wake 1000 >/dev/null; expect_eq "ROTATION_WAKE_AFTER=1 in the conf is not read: --wake 1000 holds" "$?" "0"
+ROTATION_WAKE_AFTER=1 watch --wake 1000 >/dev/null 2>&1; expect_eq "ROTATION_WAKE_AFTER=1 in the environment is not read: --wake 1000 holds" "$?" "0"
 
 reset
 ev 900 agent.start "$(agent w1 worker)"

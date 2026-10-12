@@ -10,6 +10,8 @@
 #   WAKE           (exit 10)  what the last executor.waiting waits for has happened (its remote
 #                             marker is in the log, or every listed worker has an agent.end),
 #                             the executor has recorded nothing since, and --wake seconds passed
+#                             — or the round's last remote.end was followed by no executor event and
+#                             no commit for --wake seconds (a manager.resume restarts that clock)
 #                             — or a worker of this round still registered as running has a
 #                             transcript not written for ROTATION_WORKER_STALE seconds (rotation.conf,
 #                             default 1200): the executor would wait for a dead agent forever. A
