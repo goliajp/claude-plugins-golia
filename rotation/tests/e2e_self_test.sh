@@ -28,7 +28,7 @@
 # pending: a dirty tree keeps the intent (INV-2 red), a clean one consumes it.
 # Then a third round is interrupted in every way the recovery tools know, with the
 # real scripts writing the events (the clock is the scripts' own; thresholds are
-# lowered through --stale and ROTATION_WAKE_AFTER, never by waiting them out):
+# lowered through --stale and --wake, never by waiting them out):
 #   session lost       recover.sh from the registering session → RESUME <id>; from another
 #                      session → RESPAWN …(id,mismatch); without a session id → (id,no-session)
 #   executor silent    registered and never wrote again → watchdog STALE (11) once --stale passed
@@ -36,7 +36,7 @@
 #                      the command that records the end (and running it closes the job); no
 #                      marker → not-seen, nothing offered
 #   WAKE               executor.waiting on a worker whose agent.end arrived → WAKE (10); no waiting
-#                      but a remote.end followed by silence for ROTATION_WAKE_AFTER → WAKE
+#                      but a remote.end followed by silence for --wake seconds → WAKE
 #   QUOTA              quota.hit whose reset passed and nothing after → QUOTA (12); manager.resume
 #                      answers it
 #   MULTI-EXECUTOR     a second running executor → exit 15; ending it clears the flag
@@ -102,7 +102,6 @@ ROTATION_AXES=A,B
 ROTATION_STAMPS=sweep
 ROTATION_SWEEP_STAMP=sweep
 ROTATION_CLOSE_RULES=$R/rules.tsv
-ROTATION_WAKE_AFTER=${E2E_WAKE_AFTER:-300}
 EOF
   # the project's adapter: directories and the four commands; no probe and no remote grep (no runner)
   cat > "$R/project.sh" <<EOF
@@ -302,10 +301,10 @@ round() {
 
 # ── the interrupted round ───────────────────────────────────────────────
 # The fixture's commits are a day old, so only what this section does counts as activity and nothing on
-# the main tree answers a remote.end by accident. ROTATION_WAKE_AFTER is 2 s here (conf-only key).
+# the main tree answers a remote.end by accident. The wait after a remote.end is --wake 2 here.
 interruption() {
   local tag='[interrupted]' out rc cmd seg_log
-  E2E_WAKE_AFTER=2 GIT_COMMITTER_DATE="$(( $(date +%s) - 86400 )) +0000" setup_round interrupted
+  GIT_COMMITTER_DATE="$(( $(date +%s) - 86400 )) +0000" setup_round interrupted
   w() { senv sess-mgr "$KERNEL/watchdog.sh" --once "$@"; }
   page() { senv "$1" "$KERNEL/recover.sh" 2>&1; }
 
@@ -368,17 +367,17 @@ interruption() {
   expect_has "$tag WAKE line names the worker and the executor" "$out" '^WAKE workers=w1 is done, executor silent [0-9]+ s since .* · agent=ag-x$'
   expect_has "$tag page: the wait is satisfied" "$(page sess-mgr)" '^executor.waiting: .* for workers w1 · still waiting=yes · satisfied=yes$'
 
-  # WAKE without a wait on record: a remote.end followed by silence for ROTATION_WAKE_AFTER
+  # WAKE without a wait on record: a remote.end followed by silence for --wake seconds
   kenv "$KERNEL/adapter_run.sh" preflight -q >/dev/null 2>&1
   out=$(kenv "$KERNEL/adapter_run.sh" close-segment "$HEAD" plan "$VERDICTS/none.json" 2>&1); rc=$?
   expect_eq "$tag a segment with its end on record (exit 0)" "$rc" 0
-  w >/dev/null; rc=$?
+  w --wake 2 >/dev/null; rc=$?
   expect_eq "$tag no WAKE right after the remote.end" "$rc" 0
   sleep 2
-  out=$(w); rc=$?
-  expect_eq "$tag remote.end and nothing from the executor for ROTATION_WAKE_AFTER: WAKE (10)" "$rc" 10
+  out=$(w --wake 2); rc=$?
+  expect_eq "$tag remote.end and nothing from the executor for --wake seconds: WAKE (10)" "$rc" 10
   expect_has "$tag WAKE line counts from the remote.end" "$out" "^WAKE remote.end kind=close.plan sha=$HEAD log=$seg_log is on record and no executor event followed for [0-9]+ s since remote.end .* · agent=ag-x$"
-  expect_has "$tag page: the silence after the remote.end, the configured wait" "$(page sess-mgr)" "^last remote.end: .* kind=close.plan sha=$HEAD · executor moved since=no · wake after 2 s$"
+  expect_has "$tag page: the silence after the remote.end" "$(page sess-mgr)" "^last remote.end: .* kind=close.plan sha=$HEAD · executor moved since=no$"
 
   # QUOTA: the reset passed and nothing followed; the manager continuing the executor answers it
   kenv "$KERNEL/event.sh" quota.hit "quota.resets=int:$(( $(date +%s) - 1 ))" quota.agent=ag-x >/dev/null
@@ -386,7 +385,7 @@ interruption() {
   expect_eq "$tag quota.hit whose reset passed, nothing after: QUOTA (12)" "$rc" 12
   expect_has "$tag QUOTA line" "$out" '^QUOTA resets=.* passed, no event since .* · agent=ag-x$'
   senv sess-mgr "$KERNEL/manager_log.sh" resume ag-x quota rot-x >/dev/null
-  w >/dev/null; rc=$?
+  w --wake 2 >/dev/null; rc=$?
   expect_eq "$tag manager.resume recorded: no QUOTA, and the WAKE clock restarted" "$rc" 0
   expect_has "$tag page: the quota is answered" "$(page sess-mgr)" '^quota.hit: .* agent=ag-x resets=.* · due=yes · events since=yes$'
 

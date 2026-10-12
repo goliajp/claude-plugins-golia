@@ -89,10 +89,13 @@ if [ "$conf_parsed" -eq 1 ]; then
     eval "v=\${$k:-}"
     is_int "$v" || { fail "conf.$k" "must be an integer, got '$v'"; keys_bad=1; }
   done
-  for k in ROTATION_COLD_START_WINDOW ROTATION_BOOTSTRAP_ROUNDS ROTATION_WAKE_AFTER ROTATION_WORKER_STALE; do
+  for k in ROTATION_COLD_START_WINDOW ROTATION_BOOTSTRAP_ROUNDS ROTATION_WORKER_STALE; do
     eval "v=\${$k:-}"
     [ -z "$v" ] || is_int "$v" || { fail "conf.$k" "must be an integer when set, got '$v'"; keys_bad=1; }
   done
+  # read from the file: nothing reads the key any more, so a value in the environment means nothing either
+  grep -qE '^[[:space:]]*ROTATION_WAKE_AFTER[[:space:]]*=' "$ROTATION_CONF_FILE" 2>/dev/null \
+    && warn conf.ROTATION_WAKE_AFTER "is no longer read: watchdog.sh --wake sets the wait after a remote.end too; delete the line"
   case "${ROTATION_TRIG2_MEASURE:-trigger}" in trigger|active) ;; *) fail conf.ROTATION_TRIG2_MEASURE "must be trigger or active, got '$ROTATION_TRIG2_MEASURE'"; keys_bad=1 ;; esac
   for k in ROTATION_TRIG1A_MODE ROTATION_TRIG2_MODE; do
     eval "v=\${$k:-enforce}"
