@@ -66,6 +66,9 @@ PROBE_CMD = os.environ.get('ROTATION_REMOTE_PROBE_CMD', '')
 GREP_CMD = os.environ.get('ROTATION_REMOTE_GREP_CMD', '')
 COLLECT_CMD = os.environ.get('ROTATION_REMOTE_COLLECT_CMD', '')
 WORKER_STALE = int(os.environ.get('ROTATION_WORKER_STALE') or 1200)
+# a dead? worker that may only be waiting (its last tool call is still open, or the executor recorded it is waiting
+# on it) makes the watchdog WAKE only after this long, and the WAKE asks rather than prescribes a re-dispatch
+WORKER_WAIT_STALE = 3 * WORKER_STALE
 KERNEL_DIR = os.path.dirname(os.path.abspath(__file__))
 ORIGIN = os.environ.get('ROTATION_AGENT_ORIGIN_PATTERN') or os.environ.get('HARDEV_AGENT_ORIGIN_PATTERN') or '^Agent-Origin:'
 # the manager marker: while it exists a rotation is being managed, and every commit on the main tree must come
@@ -404,7 +407,35 @@ def transcript_state(agent, session, now):
     mtime = int(os.path.getmtime(path))
     age = now - mtime
     return {'state': 'dead?' if age >= WORKER_STALE else 'alive', 'why': None, 'path': path, 'mtime': mtime, 'age': age,
-            'session': session}
+            'session': session, 'openTool': open_tool_call(path) if age >= WORKER_STALE else None}
+
+
+def open_tool_call(path):
+    """the name of the tool call the transcript's last entry makes and nothing has answered yet, else None.
+    a worker blocked in one long foreground call (polling a remote job, say) writes nothing until it returns, so its
+    transcript ends on that call; a worker whose session died mid-turn looks the same, which is why this only
+    softens a dead? and never clears it"""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 262144))
+            tail = f.read().decode('utf-8', 'replace').splitlines()
+    except OSError:
+        return None
+    for line in reversed(tail):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            return None
+        if entry.get('type') != 'assistant':
+            return None
+        content = (entry.get('message') or {}).get('content') or []
+        calls = [c for c in content if isinstance(c, dict) and c.get('type') == 'tool_use']
+        return (calls[-1].get('name') or 'tool') if calls else None
+    return None
 
 
 def worker_states(agents, now, events, round_ts):
@@ -416,6 +447,10 @@ def worker_states(agents, now, events, round_ts):
     ex = executor_of(agents)
     rounds = [a for a in agents if a['role'] == 'rotation' and a['inRound'] and a.get('managerSession')]
     fallback = (ex or {}).get('managerSession') or (rounds[-1]['managerSession'] if rounds else None)
+    acts = [e for e in executor_events(events) if (e.get('ts') or 0) >= round_ts]
+    wi = last_index(acts, 'executor.waiting')
+    waited = acts[wi] if wi is not None else {}
+    waited_on = waited.get('workers') or (waited.get('waiting') or {}).get('workers') or []
     out = []
     for a in agents:
         if a['status'] != 'running' or not a['inRound'] or a['role'] in ('rotation', 'manager'):
@@ -423,6 +458,12 @@ def worker_states(agents, now, events, round_ts):
         t = transcript_state(a, a.get('managerSession') or fallback, now)
         if t['state'] == 'dead?':
             t['relayedTs'] = max((r for r in resumes if r >= t['mtime'] + WORKER_STALE), default=None)
+            reasons = []
+            if t.get('openTool'):
+                reasons.append(f"its last {t['openTool']} call has no result yet")
+            if a['name'] in waited_on:
+                reasons.append(f"the executor recorded at {waited.get('at')} that it is waiting on it")
+            t['maybeWaiting'] = '; '.join(reasons) or None
         a['transcript'] = t
         out.append(a)
     return out
@@ -648,6 +689,12 @@ def print_scene(s):
         t = a['transcript']
         if t['state'] != 'dead?':
             continue
+        if t.get('maybeWaiting'):
+            p(f"  dead? {a['name']}: its transcript {t['path']} has not been written for {t['age'] // 60} min "
+              f"(ROTATION_WORKER_STALE={s['workerStale']} s), but {t['maybeWaiting']}: it may be waiting on a remote job. "
+              f"Do not re-dispatch it on the transcript alone; ask the executor what it is waiting on"
+              + f": {a.get('task') or '—'}" + (f" · worktree {a['worktree']}" if a.get('worktree') else ''))
+            continue
         p(f"  dead? {a['name']}: its transcript {t['path']} has not been written for {t['age'] // 60} min "
           f"(ROTATION_WORKER_STALE={s['workerStale']} s) while it is still registered as running. Tell the executor: "
           + (f"record its end (ROTATION_AGENT_STATUS=abandoned agent_log.sh end {a['name']} {a['role']} {a.get('model') or '-'}) "
@@ -755,6 +802,14 @@ def watch(stale, wake, dirty_age, floor):
     # a worker the executor is waiting on whose transcript stopped: the executor would wait for it forever
     # once relayed (a manager.resume after it went dead?) it stays quiet until its transcript moves and stops again
     dead = [a for a in workers if a['transcript']['state'] == 'dead?' and not a['transcript']['relayedTs']]
+    waiting = [a for a in dead if a['transcript'].get('maybeWaiting')]
+    dead = [a for a in dead if not a['transcript'].get('maybeWaiting')]
+    long_waiting = [a for a in waiting if a['transcript']['age'] >= WORKER_WAIT_STALE]
+    if long_waiting and not dead:
+        names = ','.join(f"{a['name']}({a.get('id')},{a['transcript']['age']}s)" for a in long_waiting)
+        return 'WAKE', (f"WAKE silent worker(s) {names}: transcript not written for ≥ {WORKER_WAIT_STALE} s, but "
+                        + '; '.join(a['transcript']['maybeWaiting'] for a in long_waiting)
+                        + f" · it may still be waiting on a remote job: ask the executor before re-dispatching · agent={who}")
     if dead:
         names = ','.join(f"{a['name']}({a.get('id')},{a['transcript']['age']}s)" for a in dead)
         return 'WAKE', (f"WAKE dead? worker(s) {names}: transcript not written for ≥ {WORKER_STALE} s while still registered "
