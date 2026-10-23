@@ -17,7 +17,9 @@
 #                             seconds: the executor is polling it in a foreground call and records nothing
 #                             — or a worker of this round still registered as running has a
 #                             transcript not written for ROTATION_WORKER_STALE seconds (rotation.conf,
-#                             default 1200): the executor would wait for a dead agent forever. A
+#                             default 1200): the executor would wait for a dead agent forever; one whose
+#                             last tool call is still open, or that the last executor.waiting names, may only
+#                             be waiting on a remote job and is reported after 3 × that, as a WAKE that asks. A
 #                             manager.resume recorded after the worker went dead? silences it until its
 #                             transcript is written again and then stops for that long once more
 #   STALE          (exit 11)  no sign of life for --stale seconds: the latest of the last event, the
