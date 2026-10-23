@@ -605,7 +605,6 @@ reset
 ev 3500 rotation.end '"trigger":"self"'
 ev 600 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
 ev 500 agent.start "$(agent w9 worker '"id":"ag-w9"')"
-ev 400 executor.waiting '"waiting":{"workers":["w9"]}'
 tr_file "$TMP/cfg-b" sess-A ag-w9 1500
 out=$(run "$BIN/recover.sh" --no-probe)
 expect_has "dead?: the agent line shows the transcript state and its age" "$out" "transcript=dead? (25 min since written)"
@@ -669,6 +668,44 @@ rm -rf "$TMP/cfg-b"
 out=$(run "$BIN/recover.sh" --no-probe)
 expect_has "no transcript found: unknown" "$out" "transcript=unknown (no transcript found)"
 watch >/dev/null; expect_eq "watchdog: an unknown transcript is no WAKE" "$?" "0"
+# a dead? worker that may only be waiting: its transcript ends on a tool call nothing has answered, or the
+# executor recorded that it is waiting on it. The page asks instead of prescribing a re-dispatch, and the
+# watchdog stays quiet until 3 × ROTATION_WORKER_STALE
+tr_file_open() {  # tr_file_open <config dir> <session> <agent id> <seconds ago>: last entry an open Bash call
+  local f="$1/projects/-x-repo/$2/subagents/agent-$3.jsonl"
+  mkdir -p "$(dirname "$f")"
+  printf '%s\n' '{"type":"user","message":{"content":"go"}}' \
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"polling"},{"type":"tool_use","id":"tu1","name":"Bash","input":{}}]}}' > "$f"
+  touch -t "$(date -r "$((NOW - $4))" +%Y%m%d%H%M.%S)" "$f"
+}
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 3450 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+ev 3400 agent.start "$(agent w6 worker '"id":"ag-w6","worktree":"/x/repo/.claude/worktrees/agent-ag-w6"')"
+tr_file_open "$TMP/cfg-b" sess-A ag-w6 1500
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "open tool call: the page says it may be waiting" "$out" "but its last Bash call has no result yet: it may be waiting on a remote job"
+expect_has "open tool call: the page asks the executor" "$out" "Do not re-dispatch it on the transcript alone"
+expect_not "open tool call: no re-dispatch is prescribed" "$out" "dispatch a fresh isolated worker"
+watch >/dev/null; expect_eq "open tool call, 1500 s: no WAKE" "$?" "0"
+tr_file_open "$TMP/cfg-b" sess-A ag-w6 3700
+out=$(watch); rc=$?
+expect_eq "open tool call, ≥ 3 × the threshold: a WAKE" "$rc" "10"
+expect_has "that WAKE asks before re-dispatching" "$out" "WAKE silent worker(s) w6(ag-w6,"
+expect_has "that WAKE says why" "$out" "ask the executor before re-dispatching"
+# a transcript ending on an answered call is a plain dead?
+f="$TMP/cfg-b/projects/-x-repo/sess-A/subagents/agent-ag-w6.jsonl"
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu1"}]}}' >> "$f"
+touch -t "$(date -r "$((NOW - 1500))" +%Y%m%d%H%M.%S)" "$f"
+expect_has "answered call: the re-dispatch line is back" "$(run "$BIN/recover.sh" --no-probe)" "dispatch a fresh isolated worker"
+watch >/dev/null; expect_eq "answered call, 1500 s: a WAKE" "$?" "10"
+# the executor recorded that it waits on the worker: softened the same way
+ev 1400 executor.waiting '"waiting":{"workers":["w6"]}'
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "executor.waiting names it: the page says so" "$out" "the executor recorded at"
+expect_not "executor.waiting names it: no re-dispatch is prescribed" "$out" "dispatch a fresh isolated worker"
+watch >/dev/null; expect_eq "executor.waiting names it, 1500 s: no WAKE" "$?" "0"
+rm -rf "$TMP/cfg-b"
 # the worker's own session on its start event wins over the executor's
 reset
 ev 3500 rotation.end '"trigger":"self"'
