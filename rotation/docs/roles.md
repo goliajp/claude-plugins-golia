@@ -68,6 +68,10 @@ Then report to the operator — the `ROTATION-CLOSED` line, the gate / sweep / a
 - Operator interjections: about the current work → `SendMessage` the text to the executor verbatim; about later → append to `.claude/autorun-inbox.md`; "stop" → forward it and wait for `ROTATION-OPEN reason=operator-stop`
 - `SendMessage` is **asynchronous**: the manager's turn ends when the message is sent, and the executor's answer arrives as a new turn. Do not wait for it inside the same turn.
 
+### Lanes
+
+A project with a lane ([lanes.md](lanes.md)) has one more executor to manage, through the lane's shims (`.claude/rotation-lanes/<lane>/manager_log.sh`, `doctor.sh`, `recover.sh`, `watchdog.sh`, `report_save.sh`): one watchdog per lane, the restart procedure once per lane. The lane's executor works in a worktree, so it is never continued by `SendMessage`; a restart or a stall replaces it from the lane's branch, like a worker. The main lane's close leaves the lane's worktree alone; the main lane's report check that counts worktrees excludes it.
+
 ## The executor
 
 The round's rotation agent, on the main tree, branch `ROTATION_BASE_BRANCH`. It does exactly what a careful interactive session would: read the handoff in full → ship the items under the next-item heading in order → pre-flight every commit, gate at the end of every batch → close by the plan ([close.md](close.md)) → write the handoff → `bash .claude/rotation/trigger.sh self` → the final report. Every project rule applies to it; where a rule says "the main session", it means the executor.

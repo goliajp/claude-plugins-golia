@@ -13,8 +13,16 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
-[ -f "$EVENTS_LOG" ] || exit 0
 input=$(cat)
+# an agent registered by a lane's executor is in that lane's events: the main
+# lane's hook hands the same payload to one child per lane (ROTATION_LANE set)
+if [ -z "$ROTATION_LANE" ] && [ -d "$CLAUDE_DIR/rotation-lanes" ]; then
+  for lane_dir in "$CLAUDE_DIR"/rotation-lanes/*/; do
+    [ -d "$lane_dir" ] || continue
+    printf '%s' "$input" | ROTATION_LANE=$(basename "$lane_dir") bash "$0" || true
+  done
+fi
+[ -f "$EVENTS_LOG" ] || exit 0
 pairs=$(python3 - "$EVENTS_LOG" "$input" <<'PY'
 import json, sys
 hook = json.loads(sys.argv[2] or "{}")
