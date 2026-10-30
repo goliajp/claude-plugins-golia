@@ -50,3 +50,7 @@ The manager never does substrate work: no commits, no source changes, no builds,
 - The report's first line is `ROTATION-OPEN`: print it to the operator verbatim; `reason=runner-down` is not restarted automatically; otherwise start a new round from `leftover:`
 - A failed notification that is not 429, or a first line that is not `ROTATION-*`: `SendMessage` "report status"; no answer → steps 1 / 6 / 7 above → new round, `leftover:` filled in
 - Operator interjections: about the current work → `SendMessage` the text to the executor verbatim; about later → append to `.claude/autorun-inbox.md`; "stop" → forward it and wait for `ROTATION-OPEN reason=operator-stop`
+
+## Lanes (only in a project that wired one: `.claude/rotation-lanes/<lane>/`)
+
+Everything above, once more for the lane, through the lane's shims: `bash .claude/rotation-lanes/<lane>/manager_log.sh start`, `doctor.sh`, `recover.sh`, `watchdog.sh` (its own background task), `agent_log.sh`, `report_save.sh`. The lane's executor is started with `isolation: worktree`, switches to the lane's branch and runs `lane_enter.sh <lane>` first (its prompt says so); it is never continued by `SendMessage` — after a restart or a stall, replace it from the lane's branch. The lane's handoff is `.claude/rotation-lanes/<lane>/handoff.md`; the hand-over of its closed rounds to the main lane is the project's protocol (the main lane's handoff names it). `docs/lanes.md` in the plugin directory has the layout.

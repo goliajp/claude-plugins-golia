@@ -30,6 +30,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_CLOSE_CHECKS_OFF` | no | — | rows dropped before planning, comma-separated; an unknown name = exit 2 |
 | `ROTATION_WORKER_STALE` | no | 1200 | seconds a worker still registered as running may go without its transcript being written before it is `dead?` (recover page) and a WAKE (watchdog) |
 | `ROTATION_MESSAGES` | no | — | a `key=value` file overriding the verdict's human-read strings |
+| `ROTATION_LANE_SHARED_DIRS` | no | — | lanes only: top-level directories of the main tree that `lane_enter.sh` links into the lane's worktree, space-separated (e.g. `.dev`); [lanes.md](lanes.md) |
 
 ## project.sh
 
@@ -89,6 +90,6 @@ Common to all four:
 
 ## Overrides for tests
 
-`ROTATION_PROJECT_DIR`, `ROTATION_CONF`, `ROTATION_PROJECT_SH`, `ROTATION_STATE_DIR`, `ROTATION_ROTATIONS_LOG`, `ROTATION_EVENTS_LOG`, `ROTATION_HANDOFF_FILE` point the kernel at a fixture. They are for self-tests and for reading a real project's state **without writing to it** (set `ROTATION_EVENTS_LOG` to a throwaway copy before running anything against a live project from a side session). Unset in every real invocation.
+`ROTATION_PROJECT_DIR`, `ROTATION_CONF`, `ROTATION_PROJECT_SH`, `ROTATION_STATE_DIR`, `ROTATION_ROTATIONS_LOG`, `ROTATION_EVENTS_LOG`, `ROTATION_HANDOFF_FILE` point the kernel at a fixture. `ROTATION_LANE` is not one of them: it selects a lane the project wired (`init.sh --lane`), and the lane's shims export it; see [lanes.md](lanes.md). They are for self-tests and for reading a real project's state **without writing to it** (set `ROTATION_EVENTS_LOG` to a throwaway copy before running anything against a live project from a side session). Unset in every real invocation.
 
 Next: [adoption.md](adoption.md).

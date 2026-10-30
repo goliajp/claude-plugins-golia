@@ -47,6 +47,7 @@ In a session whose working directory is inside the project's git repository, run
 | `.claude/rotation/rotation.conf` | from `templates/rotation.conf.example`, written once: thresholds, axes, stamp list, switches |
 | `.claude/rotation/close_rules.tsv` | from `templates/close_rules.tsv.example`, written once: the close planner's rules table |
 | `.claude/rotation-state/` | `rotations.jsonl`, `events.jsonl`, `manager.active`, `handoff/<rid>.md` — append-only state, never inside the plugin directory |
+| `.claude/rotation-lanes/<lane>/`, `.claude/rotation-state/lanes/<lane>/` | a lane (`init.sh --lane <name>`): a second instance of the protocol — its own shims, conf, project.sh, rules table, handoff and state — run by its own executor in its own worktree on its own branch; [docs/lanes.md](docs/lanes.md) |
 
 Without Claude: `CLAUDE_PLUGIN_ROOT=<plugin dir> bash <plugin dir>/bin/init.sh` from inside the repository does the same. `--force` rewrites the shims and `kernel.path`; it never touches the three project files.
 
@@ -66,6 +67,7 @@ Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256 prefix>` means the project ca
 | Turn-end gate INV-1..5 | `Stop` hook → `stop_hook.sh` → `check.sh` | at every turn end while an intent is pending; green consumes the intent, red keeps it for the next turn end |
 | Close planner | `close_plan.sh [<prev> [<head>]]`, `close_verdict_fill.sh <rid>`, `carry_stamp.sh` | at close: per check, diff from its stamp's sha to HEAD against its trigger paths → run or carry; the verdict `<rid>.verdict.md/.json` in `ROTATION_VERDICT_DIR` |
 | Adapter commands | `adapter_run.sh gate\|preflight\|close-segment\|bench …` | the kernel's only call site for the project's heavy commands; exit 0 without the contract's terminal line and events is refused (exit 64) |
+| Lane worktree | `lane_enter.sh <lane> [--share <dir>]` | once, inside a lane executor's worktree: a `.claude/` of links to the main tree's (own `worktrees/`, the lane's handoff) and the shared directories the lane's conf names |
 | Recovery | `recover.sh [--json] [--no-probe]` | after any interruption: one page of the scene, last line `RESUME <id>` / `CLEAN main tree first` / `RESPAWN executor leftover=…` / `IDLE` |
 | Watchdog | `watchdog.sh [--interval] [--stale] [--wake] [--dirty] [--once]` | beside a running round; exits with the reason: WAKE 10 / STALE 11 / QUOTA 12 / DIRTY 13 / FOREIGN-COMMIT 14 / MULTI-EXECUTOR 15 |
 | Events | `event.sh <kind> k=v…`, `agent_log.sh start\|end …`, `manager_log.sh …`, `report_save.sh` | whenever an agent, a remote job, a wait, a quota hit or a manager action happens |

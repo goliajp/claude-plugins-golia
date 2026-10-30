@@ -21,7 +21,7 @@
 
 set -u
 
-ROTATION_KERNEL_VERSION="1.1.7"
+ROTATION_KERNEL_VERSION="1.2.0"
 
 # ── Path discovery ──────────────────────────────────────────────────────
 # AUTORUN_DIR = the kernel directory (this file's parent, the plugin's bin/).
@@ -34,12 +34,25 @@ ROTATION_KERNEL_VERSION="1.1.7"
 AUTORUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${ROTATION_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 CLAUDE_DIR="$PROJECT_DIR/.claude"
-# the project's side of the contract: project.sh, rotation.conf, the shims, kernel.path
-PROJECT_ROTATION_DIR="$CLAUDE_DIR/rotation"
+# the project's side of the contract: project.sh, rotation.conf, the shims, kernel.path.
+# A lane (ROTATION_LANE, exported by the shims `init.sh --lane` writes) is a
+# second instance of the protocol in the same project — its own conf,
+# project.sh, rules table, handoff, intent and state — run by its own
+# executor on its own branch, so two rounds can be managed side by side
+# without sharing a gate or a commit count. The kernel is the same; every
+# path below follows the lane. With ROTATION_LANE unset nothing moves: the
+# single-lane layout is exactly what it was, which is what makes a lane
+# removable again without touching the main lane's files.
+ROTATION_LANE="${ROTATION_LANE:-}"
+case "$ROTATION_LANE" in
+  '') PROJECT_ROTATION_DIR="$CLAUDE_DIR/rotation"; _lane_state_dir="$CLAUDE_DIR/rotation-state" ;;
+  *[!a-z0-9-]*) echo "lib.sh: ROTATION_LANE must match [a-z0-9-]+, got '$ROTATION_LANE'" >&2; exit 2 ;;
+  *) PROJECT_ROTATION_DIR="$CLAUDE_DIR/rotation-lanes/$ROTATION_LANE"; _lane_state_dir="$CLAUDE_DIR/rotation-state/lanes/$ROTATION_LANE" ;;
+esac
 # State is kept apart from the code so that replacing the kernel never
 # touches what it recorded: rotations.jsonl, events.jsonl, manager.active and
 # the archived handoffs live under ROTATION_STATE_DIR.
-STATE_DIR="${ROTATION_STATE_DIR:-$CLAUDE_DIR/rotation-state}"
+STATE_DIR="${ROTATION_STATE_DIR:-$_lane_state_dir}"
 # Both logs and the handoff are overridable so the gates can be exercised
 # against fixtures (see the self-tests) without touching production state.
 # Unset in every real invocation. HARDEV_* are the older spellings.
@@ -47,8 +60,14 @@ ROTATIONS_LOG="${HARDEV_ROTATIONS_LOG:-${ROTATION_ROTATIONS_LOG:-$STATE_DIR/rota
 EVENTS_LOG="${HARDEV_EVENTS_LOG:-${ROTATION_EVENTS_LOG:-$STATE_DIR/events.jsonl}}"
 EVENTS_LOG_DEFAULT="$STATE_DIR/events.jsonl"
 MANAGER_ACTIVE_FILE="$STATE_DIR/manager.active"
-INTENT_FILE="$CLAUDE_DIR/autorun-intent"
-HANDOFF_FILE="${HARDEV_HANDOFF_FILE:-${ROTATION_HANDOFF_FILE:-$CLAUDE_DIR/handoff.md}}"
+# the intent and the handoff: the main lane's at .claude/, a lane's beside its conf
+if [ -n "$ROTATION_LANE" ]; then
+  INTENT_FILE="$PROJECT_ROTATION_DIR/autorun-intent"
+  HANDOFF_FILE="${HARDEV_HANDOFF_FILE:-${ROTATION_HANDOFF_FILE:-$PROJECT_ROTATION_DIR/handoff.md}}"
+else
+  INTENT_FILE="$CLAUDE_DIR/autorun-intent"
+  HANDOFF_FILE="${HARDEV_HANDOFF_FILE:-${ROTATION_HANDOFF_FILE:-$CLAUDE_DIR/handoff.md}}"
+fi
 
 # ── Project adapter ─────────────────────────────────────────────────────
 # project.sh: the ROTATION_* commands and directories the kernel calls out
@@ -65,7 +84,7 @@ PROJECT_SH="${ROTATION_PROJECT_SH:-$PROJECT_ROTATION_DIR/project.sh}"
 # first, so a value cannot be slipped in from a shell. trigger.sh writes the
 # effective values and the file's sha256 into every rotations.jsonl row.
 ROTATION_CONF_FILE="${ROTATION_CONF:-$PROJECT_ROTATION_DIR/rotation.conf}"
-ROTATION_CONF_ONLY_KEYS="ROTATION_TRIG1_MIN_COMMITS ROTATION_TRIG1_MIN_CLOSED ROTATION_TRIG2_MIN_WALL_SEC ROTATION_TRIG2_MAX_WALL_SEC ROTATION_TRIG2_MEASURE ROTATION_TRIG5_SAME_AXIS_MAX ROTATION_TRIG5_BENCH_MAX_AGE_DAYS ROTATION_COLD_START_WINDOW ROTATION_AXES ROTATION_BLACKLIST_EXTRA ROTATION_STAMPS ROTATION_AXIS_STAMP ROTATION_SWEEP_STAMP ROTATION_TRIGGER_SECTION ROTATION_TRIG8_GATE_COVERAGE ROTATION_TRIG1A_MODE ROTATION_TRIG2_MODE ROTATION_BOOTSTRAP_ROUNDS ROTATION_MESSAGES ROTATION_CONF_KERNEL ROTATION_CLOSE_CHECKS_OFF ROTATION_WORKER_STALE ROTATION_TRIG9_VERDICT_RED"
+ROTATION_CONF_ONLY_KEYS="ROTATION_TRIG1_MIN_COMMITS ROTATION_TRIG1_MIN_CLOSED ROTATION_TRIG2_MIN_WALL_SEC ROTATION_TRIG2_MAX_WALL_SEC ROTATION_TRIG2_MEASURE ROTATION_TRIG5_SAME_AXIS_MAX ROTATION_TRIG5_BENCH_MAX_AGE_DAYS ROTATION_COLD_START_WINDOW ROTATION_AXES ROTATION_BLACKLIST_EXTRA ROTATION_STAMPS ROTATION_AXIS_STAMP ROTATION_SWEEP_STAMP ROTATION_TRIGGER_SECTION ROTATION_TRIG8_GATE_COVERAGE ROTATION_TRIG1A_MODE ROTATION_TRIG2_MODE ROTATION_BOOTSTRAP_ROUNDS ROTATION_MESSAGES ROTATION_CONF_KERNEL ROTATION_CLOSE_CHECKS_OFF ROTATION_WORKER_STALE ROTATION_TRIG9_VERDICT_RED ROTATION_LANE_SHARED_DIRS"
 ROTATION_CONF_SHA256=""
 ROTATION_CONF_ERROR=""
 
@@ -284,12 +303,16 @@ autorun_record_event() {
   local kind=$1
   shift
   local line
+  # a lane's events say which lane they belong to; the main lane's rows are unchanged
+  local -a lane_kv=()
+  [ -z "$ROTATION_LANE" ] || lane_kv=("lane=$ROTATION_LANE")
   line=$(autorun_emit_jsonl \
     "at=$(autorun_now_iso)" \
     "ts=int:$(date +%s)" \
     "kind=$kind" \
     "rotationId=$(autorun_current_rotation_id)" \
     "head=$(autorun_git_head)" \
+    ${lane_kv[@]+"${lane_kv[@]}"} \
     "$@")
   mkdir -p "$(dirname "$EVENTS_LOG")"
   printf '%s\n' "$line" >> "$EVENTS_LOG"
