@@ -21,7 +21,7 @@
 
 set -u
 
-ROTATION_KERNEL_VERSION="1.2.0"
+ROTATION_KERNEL_VERSION="1.2.1"
 
 # ── Path discovery ──────────────────────────────────────────────────────
 # AUTORUN_DIR = the kernel directory (this file's parent, the plugin's bin/).
@@ -266,6 +266,10 @@ PY
 # The rotation now in progress: the intent file when one is pending, else
 # the id of the last row in rotations.jsonl (every trigger opens the next
 # session under the id it just wrote). Empty on a cold start.
+# The round in progress: the intent (a handover just happened), else the
+# last row's id, else the cold-start id agent_log.sh minted when the first
+# executor of a project (or a lane) was registered before any row existed
+# ($STATE_DIR/rotation.current; ignored as soon as a row exists).
 autorun_current_rotation_id() {
   local rid=""
   [ -f "$INTENT_FILE" ] && rid=$(head -1 "$INTENT_FILE" | tr -d '[:space:]')
@@ -283,6 +287,9 @@ for line in open(sys.argv[1]):
 print(last)
 PY
 )
+  fi
+  if [ -z "$rid" ] && [ -f "$STATE_DIR/rotation.current" ]; then
+    rid=$(head -1 "$STATE_DIR/rotation.current" | tr -d '[:space:]')
   fi
   printf '%s\n' "$rid"
 }
