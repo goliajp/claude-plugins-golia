@@ -60,3 +60,7 @@ Record: `bash .claude/rotation/manager_log.sh verify 1=pass … 9=fail`. File: `
 - `ROTATION-OPEN reason=…`: verbatim to the operator; `runner-down` is not restarted automatically; otherwise a new round from `leftover:`
 - A failed notification or a first line that is not `ROTATION-*`: `SendMessage` "report status"; no answer → checks 1 / 6 / 7 → new round
 - Operator interjections: about the current work → forward verbatim by `SendMessage`; about later → append to `.claude/autorun-inbox.md`; "stop" → forward, wait for `ROTATION-OPEN reason=operator-stop`
+
+## Lanes
+
+A project may run a second lane (`.claude/rotation-lanes/<lane>/`, `docs/lanes.md`): a second executor on its own branch in its own worktree, with its own handoff, gate, rules and state. Manage it through the lane's shims (same commands, prefixed with the lane directory), one watchdog per lane. A lane executor is never continued by `SendMessage` (it lives in a worktree); replace it from the lane's branch. The main lane's layout is unchanged by a lane; removing the lane is stopping its executor and merging or dropping its branch.

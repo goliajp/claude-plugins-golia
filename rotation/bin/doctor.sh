@@ -37,6 +37,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 [ "$#" -eq 0 ] || { echo "usage: doctor.sh" >&2; exit 2; }
+# a lane says so first: every path below is that lane's (docs/lanes.md)
+[ -z "$ROTATION_LANE" ] || echo "PASS lane $ROTATION_LANE ($PROJECT_ROTATION_DIR; state $STATE_DIR)"
 
 nfail=0
 failed=()
