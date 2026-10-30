@@ -34,7 +34,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 # every turn end refreshes whatever the project derives from the state (dashboard)
-autorun_after_write
+[ -n "${ROTATION_HOOK_LANE_CHILD:-}" ] || autorun_after_write
+
+# The main lane's hook also runs the gate for every lane the project has
+# (each lane keeps its own intent beside its conf): one child per lane, the
+# kernel re-sourced with ROTATION_LANE set so every path follows the lane.
+if [ -z "$ROTATION_LANE" ] && [ -d "$CLAUDE_DIR/rotation-lanes" ]; then
+  for lane_dir in "$CLAUDE_DIR"/rotation-lanes/*/; do
+    [ -d "$lane_dir" ] || continue
+    ROTATION_LANE=$(basename "$lane_dir") ROTATION_HOOK_LANE_CHILD=1 bash "$0" </dev/null || true
+  done
+fi
 
 # No intent ⇒ this is just a normal turn-end. Nothing to do.
 if [ ! -f "$INTENT_FILE" ]; then
