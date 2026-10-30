@@ -130,3 +130,7 @@ An empty table is a configuration error (exit 2). `ROTATION_CLOSE_CHECKS_OFF` dr
 The `rid` of a verdict is the round the range *belongs to* (the row whose `prevHead` opened the range), which is the id the round's events carry — not the id the close trigger has just written. `report_save.sh <rid> <file>` files the executor's report as `<rid>.md` beside it, once.
 
 Next: [gates.md](gates.md).
+
+### rotation.current (cold start only)
+
+One line, the round id `agent_log.sh start … rotation` minted (or adopted from `ROTATION_ROTATION_ID`) when the first executor of a project or a lane was registered before any `rotations.jsonl` row existed. `autorun_current_rotation_id` reads it after the intent and the last row, so it only matters until the first row is written; it is left in place afterwards.
