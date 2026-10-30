@@ -7,3 +7,4 @@
 
 # Personal data for *using* plugins (state snapshots, sandbox fixtures, personal notes).
 .private/
+__pycache__/
