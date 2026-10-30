@@ -124,5 +124,24 @@ expect_eq "a shim through the links: the event's head is the worktree's HEAD, in
 out=$(cd "$WT" && bash -c '. .claude/rotation-lanes/b/lib.sh 2>&1; echo "$PROJECT_DIR"')
 expect_eq "lib.sh through the links: the project root is the worktree" "$out" "$WT"
 
+# ── cold start: the first executor of a lane gets a round id before any row exists ─
+LANE2="$REPO/.claude/rotation-lanes/c"
+(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$KBIN/init.sh" --lane c >/dev/null 2>&1)
+out=$(cd "$REPO" && ROTATION_AGENT_ID=ag-c1 CLAUDE_CODE_SESSION_ID=s bash .claude/rotation-lanes/c/agent_log.sh start c-01 rotation opus "first" 2>&1)
+CEV="$REPO/.claude/rotation-state/lanes/c/events.jsonl"
+crid=$(cat "$REPO/.claude/rotation-state/lanes/c/rotation.current" 2>/dev/null)
+expect_has "cold start: agent_log minted a round id" "$crid" '^r-[0-9]+-[0-9a-f]{4}$'
+expect_eq "cold start: rotation.start carries that id" "$(grep -c "\"kind\":\"rotation.start\".*\"rotationId\":\"$crid\"" "$CEV")" 1
+expect_eq "cold start: autorun_current_rotation_id answers it" "$(cd "$REPO" && ROTATION_LANE=c bash -c '. .claude/rotation/lib.sh; autorun_current_rotation_id')" "$crid"
+printf '{"rotationId":"r-9-abcd","ts":2,"trigger":"self","project":"repo","prevHead":"x"}\n' > "$REPO/.claude/rotation-state/lanes/c/rotations.jsonl"
+expect_eq "once a row exists the row wins over rotation.current" "$(cd "$REPO" && ROTATION_LANE=c bash -c '. .claude/rotation/lib.sh; autorun_current_rotation_id')" "r-9-abcd"
+LANE3="$REPO/.claude/rotation-lanes/d"
+(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$KBIN/init.sh" --lane d >/dev/null 2>&1)
+(cd "$REPO" && ROTATION_ROTATION_ID=r-1793403061-ead6 ROTATION_AGENT_ID=ag-d1 bash .claude/rotation-lanes/d/agent_log.sh start d-01 rotation opus "adopt" >/dev/null 2>&1)
+expect_eq "cold start: ROTATION_ROTATION_ID is adopted" "$(cat "$REPO/.claude/rotation-state/lanes/d/rotation.current")" "r-1793403061-ead6"
+out=$(cd "$REPO" && ROTATION_ROTATION_ID=bogus ROTATION_AGENT_ID=ag-d2 bash .claude/rotation-lanes/d/agent_log.sh start d-02 rotation opus "bad" 2>&1); rc=$?
+expect_eq "cold start: a malformed ROTATION_ROTATION_ID is refused only when still cold (here a marker exists: accepted)" "$rc" 0
+expect_eq "main lane: no rotation.current is ever written while rows exist" "$([ -e "$REPO/.claude/rotation-state/rotation.current" ] && echo yes || echo no)" no
+
 echo "lanes_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

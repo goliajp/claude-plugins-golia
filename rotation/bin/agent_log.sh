@@ -52,6 +52,15 @@ fi
 if [ "$ROLE" = rotation ]; then
   if [ "$PHASE" = start ]; then
     mkdir -p "$(dirname "$MANAGER_ACTIVE_FILE")"
+    # cold start (no row, no intent — the first round of a project or a lane): the round still needs an
+    # id for its verdict (TRIG-9) and its events; mint one, or adopt ROTATION_ROTATION_ID when the caller
+    # names the id a verdict was already filled under. The marker is read only while no row exists.
+    if [ -z "$(autorun_current_rotation_id 2>/dev/null)" ]; then
+      cold_rid="${ROTATION_ROTATION_ID:-$(autorun_new_id)}"
+      case "$cold_rid" in r-[0-9]*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) echo "agent_log.sh: ROTATION_ROTATION_ID must look like r-<epoch>-<4 hex>, got '$cold_rid'" >&2; exit 2 ;; esac
+      printf '%s\n' "$cold_rid" > "$STATE_DIR/rotation.current"
+      echo "agent_log: cold start — round id $cold_rid ($STATE_DIR/rotation.current)"
+    fi
     printf 'rotation=%s executor=%s id=%s since=%s session=%s\n' "$(autorun_current_rotation_id 2>/dev/null || echo -)" "$NAME" "$ROTATION_AGENT_ID" "$(date -u +%FT%TZ)" "${CLAUDE_CODE_SESSION_ID:-null}" > "$MANAGER_ACTIVE_FILE"
   elif [ "${ROTATION_MANAGER_IDLE:-0}" = 1 ]; then
     rm -f "$MANAGER_ACTIVE_FILE"
