@@ -31,6 +31,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_WORKER_STALE` | no | 1200 | seconds a worker still registered as running may go without its transcript being written before it is `dead?` (recover page) and a WAKE (watchdog) |
 | `ROTATION_MESSAGES` | no | — | a `key=value` file overriding the verdict's human-read strings |
 | `ROTATION_LANE_SHARED_DIRS` | no | — | lanes only: top-level directories of the main tree that `lane_enter.sh` links into the lane's worktree, space-separated (e.g. `.dev`); [lanes.md](lanes.md) |
+| `ROTATION_LANE_NAME` | no | — | the name of the lane that has no directory (the project's first lane, `.claude/rotation/`): its events then carry `lane` like every other lane's. Unset, its rows are exactly what they were before lanes existed; [lanes.md](lanes.md) |
 
 ## project.sh
 

@@ -160,5 +160,11 @@ printf '# lane handoff\n\nHEAD %s\n\n## rotate-trigger\n\naxis: A\nclosed: %s fi
 t5=$(cd "$REPO" && bash .claude/rotation-lanes/b/trig_gate.sh 2>&1 | grep -E '^TRIG-5 ')
 expect_has "TRIG-5 with 2 prior same-axis rows (need 7): PASS, not a streak" "$t5" '^TRIG-5 PASS .*only 2 prior'
 
+# ── the first lane is a peer: named by ROTATION_LANE_NAME, its events carry the name ─
+printf 'ROTATION_LANE_NAME=substrate\n' >> "$REPO/.claude/rotation/rotation.conf"
+(cd "$REPO" && bash .claude/rotation/event.sh harness.note note.kind=named-first >/dev/null 2>&1)
+expect_eq "first lane with ROTATION_LANE_NAME: its event carries the name" "$(grep -c 'named-first.*' "$MEV"):$(grep 'named-first' "$MEV" | grep -c '"lane":"substrate"')" "1:1"
+expect_eq "first lane with ROTATION_LANE_NAME: paths unchanged" "$(cd "$REPO" && bash -c '. .claude/rotation/lib.sh; echo "$STATE_DIR"')" "$REPO/.claude/rotation-state"
+
 echo "lanes_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
