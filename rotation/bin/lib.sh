@@ -21,7 +21,7 @@
 
 set -u
 
-ROTATION_KERNEL_VERSION="1.2.1"
+ROTATION_KERNEL_VERSION="1.2.2"
 
 # ── Path discovery ──────────────────────────────────────────────────────
 # AUTORUN_DIR = the kernel directory (this file's parent, the plugin's bin/).
@@ -187,8 +187,11 @@ autorun_project_name() {
   printf '%s\n' "${ROTATION_PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
 }
 
+# a lane driven from the main tree is judged at its branch, not at the main tree's HEAD
 autorun_git_head() {
-  git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown
+  local ref=HEAD
+  [ -n "$ROTATION_LANE" ] && [ -n "${ROTATION_BASE_BRANCH:-}" ] && ref="$ROTATION_BASE_BRANCH"
+  git -C "$PROJECT_DIR" rev-parse --short "$ref" 2>/dev/null || echo unknown
 }
 
 # Returns mtime-age in seconds, or empty string if file missing.

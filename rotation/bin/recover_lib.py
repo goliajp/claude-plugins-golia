@@ -142,6 +142,14 @@ def base_branch():
     return os.environ.get('ROTATION_BASE_BRANCH') or git('rev-parse', '--abbrev-ref', 'HEAD') or 'HEAD'
 
 
+def tip():
+    """the commit the round is judged at: HEAD of this checkout; for a lane (ROTATION_LANE) whose tools run from
+    the main tree, the lane's branch (ROTATION_BASE_BRANCH), so the main lane's commits never read as the lane's"""
+    if os.environ.get('ROTATION_LANE') and os.environ.get('ROTATION_BASE_BRANCH'):
+        return os.environ['ROTATION_BASE_BRANCH']
+    return 'HEAD'
+
+
 def worktrees(base):
     out, cur = [], {}
     for line in (git('worktree', 'list', '--porcelain') or '').split('\n') + ['']:
@@ -176,7 +184,7 @@ def worktrees(base):
 
 def activity(events, trees):
     """the latest sign of life: the last event, the main tree's HEAD commit, or the newest commit on any worktree"""
-    ct = git('log', '-1', '--format=%ct')
+    ct = git('log', '-1', '--format=%ct', tip())
     marks = [('event ' + str(events[-1].get('kind')), events[-1].get('ts')) if events else ('event', None),
              ('commit on the main tree', int(ct) if ct else None)]
     marks += [('commit in worktree ' + w['name'], w['commitTs']) for w in trees]
@@ -191,8 +199,8 @@ def current_round(rows):
     prev = last.get('prevHead')
     count = None
     if prev:
-        every = git('rev-list', f'{prev}..HEAD')
-        main = git('rev-list', '--first-parent', '--invert-grep', '-E', f'--grep={ORIGIN}', f'{prev}..HEAD')
+        every = git('rev-list', f'{prev}..{tip()}')
+        main = git('rev-list', '--first-parent', '--invert-grep', '-E', f'--grep={ORIGIN}', f'{prev}..{tip()}')
         if every is not None and main is not None:
             count = {'all': len(lines(every)), 'main': len(lines(main)), 'agent': len(lines(every)) - len(lines(main))}
     return {'rotationId': last.get('rotationId'), 'ts': last.get('ts') or 0, 'at': last.get('at'), 'prevHead': prev, 'commits': count}
@@ -547,16 +555,16 @@ def foreign_commits(rnd, agents, events):
     if not MANAGER_ACTIVE or not os.path.isfile(MANAGER_ACTIVE):
         return None
     prev = rnd.get('prevHead')
-    head = git('rev-parse', 'HEAD')
+    head = git('rev-parse', tip())
     if not prev or not head or head.startswith(prev):
         return {'count': 0, 'reason': None}
-    ct = git('log', '-1', '--format=%ct')
+    ct = git('log', '-1', '--format=%ct', tip())
     head_ts = int(ct) if ct else 0
     ex = executor_of(agents)
     execs = [e for e in events if e.get('kind') in ('agent.start', 'agent.end')
              and (e.get('agent') or {}).get('role') == 'rotation' and (e.get('ts') or 0) >= rnd.get('ts', 0)]
     last_exec_ts = execs[-1].get('ts') if execs else None
-    ahead = lines(git('rev-list', '--first-parent', f'{prev}..HEAD'))
+    ahead = lines(git('rev-list', '--first-parent', f'{prev}..{tip()}'))
     if ex is None:
         if last_exec_ts is None:
             return {'count': len(ahead), 'reason': 'no rotation executor was ever registered for this round'}
@@ -618,7 +626,7 @@ def build_scene(probe):
     events = read_jsonl(EVENTS)
     rnd = current_round(read_jsonl(ROTATIONS))
     base = base_branch()
-    head = git('log', '-1', '--format=%h %s')
+    head = git('log', '-1', '--format=%h %s', tip())
     agents = agents_of(events, rnd['ts'])
     trees = worktrees(base)
     # an agent's last sign of life includes the newest commit in the worktree it was registered with
@@ -817,7 +825,7 @@ def watch(stale, wake, dirty_age, floor):
 
     fc = foreign_commits(rnd, agents, events)
     if fc and fc.get('count'):
-        head = git('log', '-1', '--format=%h %s') or '?'
+        head = git('log', '-1', '--format=%h %s', tip()) or '?'
         return 'FOREIGN-COMMIT', f"FOREIGN-COMMIT n={fc['count']} head={head} · {fc['reason']} · agent={who}"
 
     acts = executor_events(events)
