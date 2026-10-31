@@ -143,5 +143,16 @@ out=$(cd "$REPO" && ROTATION_ROTATION_ID=bogus ROTATION_AGENT_ID=ag-d2 bash .cla
 expect_eq "cold start: a malformed ROTATION_ROTATION_ID is refused only when still cold (here a marker exists: accepted)" "$rc" 0
 expect_eq "main lane: no rotation.current is ever written while rows exist" "$([ -e "$REPO/.claude/rotation-state/rotation.current" ] && echo yes || echo no)" no
 
+# ── a lane driven from the main tree is judged at its branch, not at the main tree's HEAD ─
+printf 'export ROTATION_BASE_BRANCH=lane/b\n' >> "$LANE/project.sh"
+echo c > "$REPO/c.txt"; g add -A; g commit -q -m "feat: main lane moves on"
+MSHA=$(g rev-parse --short HEAD)
+expect_eq "autorun_git_head in lane mode from the main tree: the lane branch's head" "$(cd "$REPO" && ROTATION_LANE=b bash -c '. .claude/rotation/lib.sh; autorun_git_head')" "$WSHA"
+expect_eq "autorun_git_head in the main lane: HEAD" "$(cd "$REPO" && bash -c '. .claude/rotation/lib.sh; autorun_git_head')" "$MSHA"
+printf '{"rotationId":"r-7-beef","ts":1,"trigger":"self","project":"repo","prevHead":"%s"}\n' "$WSHA" > "$REPO/.claude/rotation-state/lanes/b/rotations.jsonl"
+printf 'rotation=r-7-beef executor=x id=ag-x since=t session=s\n' > "$REPO/.claude/rotation-state/lanes/b/manager.active"
+fc=$(cd "$REPO" && bash .claude/rotation-lanes/b/recover.sh --json --no-probe 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); print((s.get("foreign") or {}).get("count"), (s.get("head") or "").split(" ")[0])')
+expect_eq "recover in lane mode: a main-lane commit is not a foreign commit of the lane; head is the lane's" "$fc" "0 $WSHA"
+
 echo "lanes_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
