@@ -497,14 +497,21 @@ except FileNotFoundError:
 tail = rows[-need:] if need > 0 else []
 # Rows written before the axis field existed carry None; an unknown axis
 # breaks the streak rather than extending it — the gate needs `need`
-# rows of real evidence before it can fire.
-print(",".join((r.get("axis") or "?") for r in tail))
+# rows of real evidence before it can fire. Fewer rows than `need` is not
+# a streak either (lane platform, round 2: one row, judged as eight).
+if len(tail) < need:
+    print("SHORT:%d" % len(tail))
+else:
+    print(",".join((r.get("axis") or "?") for r in tail))
 PY
 )
   if [ -z "$prior" ]; then
     emit TRIG-5 PASS "no prior axis history yet"
     return
   fi
+  case "$prior" in
+    SHORT:*) emit TRIG-5 PASS "axis=$axis; only ${prior#SHORT:} prior self rotation(s), $need needed before a streak can be judged"; return ;;
+  esac
   local same=1 a
   local IFS=,
   for a in $prior; do
