@@ -154,5 +154,11 @@ printf 'rotation=r-7-beef executor=x id=ag-x since=t session=s\n' > "$REPO/.clau
 fc=$(cd "$REPO" && bash .claude/rotation-lanes/b/recover.sh --json --no-probe 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); print((s.get("foreign") or {}).get("count"), (s.get("head") or "").split(" ")[0])')
 expect_eq "recover in lane mode: a main-lane commit is not a foreign commit of the lane; head is the lane's" "$fc" "0 $WSHA"
 
+# ── TRIG-5 needs `need` prior rows before a same-axis streak can fire ─────
+printf '{"rotationId":"r-7-beef","ts":1,"trigger":"self","project":"repo","prevHead":"%s","axis":"A"}\n{"rotationId":"r-8-beef","ts":2,"trigger":"self","project":"repo","prevHead":"%s","axis":"A"}\n' "$SHA" "$SHA" > "$REPO/.claude/rotation-state/lanes/b/rotations.jsonl"
+printf '# lane handoff\n\nHEAD %s\n\n## rotate-trigger\n\naxis: A\nclosed: %s first\ngate: 1/0/0\n' "$SHA" "$SHA" > "$LANE/handoff.md"
+t5=$(cd "$REPO" && bash .claude/rotation-lanes/b/trig_gate.sh 2>&1 | grep -E '^TRIG-5 ')
+expect_has "TRIG-5 with 2 prior same-axis rows (need 7): PASS, not a streak" "$t5" '^TRIG-5 PASS .*only 2 prior'
+
 echo "lanes_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
