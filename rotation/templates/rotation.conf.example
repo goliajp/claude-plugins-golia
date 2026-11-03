@@ -65,6 +65,8 @@ ROTATION_WORKER_STALE=1200
 # the queue table's header (nine columns, `|`-separated) and the states a row may be in
 # ROTATION_QUEUE_HEADER=通道|id|状态|一句话|出处|登记|验收|blocked_by|done
 # ROTATION_QUEUE_STATES=在做,排队,已完成,等决定,撤回
+# the states that are final (a row in one may leave acceptance empty)
+# ROTATION_QUEUE_FINAL_STATES=已完成,撤回
 # where each lane is described (default: the plan file)
 # ROTATION_LANES_DOC=.claude/plan-state.md
 # lanes: the branch lane_close.sh merges before its trigger, and the inbox row it writes

@@ -15,6 +15,8 @@ ZH_HEADER = ["通道", "id", "状态", "一句话", "出处", "登记", "验收"
 EN_HEADER = ["lane", "id", "status", "summary", "source", "registered", "acceptance", "blocked_by", "done"]
 ZH_STATES = ["在做", "排队", "已完成", "等决定", "撤回"]
 EN_STATES = ["active", "queued", "done", "decision", "withdrawn"]
+# a row in a final state is history: its acceptance is not required any more
+FINAL_STATES = ["已完成", "撤回", "done", "withdrawn"]
 EMPTY_CELL = {"", "-", "—", "–"}
 ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9][A-Za-z0-9._-]*")
 PERCENT_RE = re.compile(r"[0-9]+%")
@@ -144,6 +146,7 @@ def queue_check(text, path):
     if len(header) != 9:
         return "FAIL", f"ROTATION_QUEUE_HEADER names {len(header)} columns, want 9 (lane, id, state, summary, source, registered, acceptance, blocked_by, done)"
     states = conf_list("ROTATION_QUEUE_STATES", ZH_STATES + EN_STATES)
+    final = set(conf_list("ROTATION_QUEUE_FINAL_STATES", FINAL_STATES))
     lines = text.split("\n")
     start = next((i for i, l in enumerate(lines) if l.lstrip().startswith("|") and cells(l) in accepted), None)
     if start is None:
@@ -164,14 +167,14 @@ def queue_check(text, path):
             bad.append(f"line {n}: id '{c[1]}' is not <prefix>-<name>")
         if c[2] not in states:
             bad.append(f"line {n} {rid}: state '{c[2]}' not one of {'/'.join(states)}")
-        if c[6] in EMPTY_CELL:
+        if c[6] in EMPTY_CELL and c[2] not in final:
             bad.append(f"line {n} {rid}: acceptance empty")
     if rows == 0:
         return "FAIL", f"{rel(path)}:{start + 1}: the queue table has no rows"
     if bad:
         more = f" (+{len(bad) - 5} more)" if len(bad) > 5 else ""
         return "FAIL", f"{rel(path)}:{start + 1}: {len(bad)} bad row(s) of {rows}: {'; '.join(bad[:5])}{more}"
-    return "PASS", f"{rel(path)}:{start + 1}: {rows} rows, ids <prefix>-<name>, states legal, acceptance filled"
+    return "PASS", f"{rel(path)}:{start + 1}: {rows} rows, ids <prefix>-<name>, states legal, acceptance filled on every row not in a final state"
 
 
 # ── ④ L3a / L3b ─────────────────────────────────────────────────────────

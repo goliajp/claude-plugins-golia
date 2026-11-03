@@ -36,6 +36,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_VISION_FILE` | no | `.claude/vision.md` | the one-page direction file (step 1): a positioning section and a non-goals section |
 | `ROTATION_QUEUE_HEADER` | no | `通道\|id\|状态\|一句话\|出处\|登记\|验收\|blocked_by\|done` | the queue table's header, `\|`-separated: the same nine columns in the same order (lane, id, state, summary, source, registered, acceptance, blocked_by, done) under the project's own names. The English `lane\|id\|status\|summary\|source\|registered\|acceptance\|blocked_by\|done` is always accepted too |
 | `ROTATION_QUEUE_STATES` | no | `在做,排队,已完成,等决定,撤回` and `active,queued,done,decision,withdrawn` | the states a queue row may be in, comma-separated; setting it replaces both default lists |
+| `ROTATION_QUEUE_FINAL_STATES` | no | `已完成,撤回,done,withdrawn` | the final states: a row in one of them may leave acceptance empty (it is history), comma-separated |
 | `ROTATION_LANES_DOC` | no | the plan file | where each lane's description lives (step 8): a section headed by the lane's name naming its work line, independence, verification machine and merge protocol |
 | `ROTATION_MERGE_FROM` | no | `develop` | lanes: the branch `lane_close.sh` merges into the lane before its trigger |
 | `ROTATION_INBOX_FILE` | no | `.claude/autorun-inbox.md` | the inbox `lane_close.sh` and `lane_merge.sh --returned` write their rows into (created when missing) |

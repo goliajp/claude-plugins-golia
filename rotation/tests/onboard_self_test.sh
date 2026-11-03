@@ -127,6 +127,13 @@ rm "$C/plan-state.md"; case_fail "no plan file" 2
 edit plan-state.md '| control | CT-pid |' '| control | pid |'; case_fail "queue id without a prefix" 3
 edit plan-state.md '| CT-dry | queued |' '| CT-dry | someday |'; case_fail "queue state not in the list" 3
 edit plan-state.md '| r1 | `make test-ui` exits 0 |' '| r1 | — |'; case_fail "queue row with an empty acceptance" 3
+edit plan-state.md '| control | CT-pid | active | PID loop on the heater | plan "heating loop" | r1 | `make test-pid` exits 0 | — | — |' '| control | CT-pid | done | PID loop on the heater | plan "heating loop" | r1 | — | — | 1a2b3c4 |'
+expect_eq "queue row in a final state (done) with an empty acceptance: step.3 PASS" "$(level "$(run)" 3)" PASS
+edit plan-state.md '| control | CT-pid | done |' '| control | CT-pid | withdrawn |'
+expect_eq "queue row withdrawn with an empty acceptance: step.3 PASS" "$(level "$(run)" 3)" PASS
+printf 'ROTATION_QUEUE_FINAL_STATES=done\n' >> "$C/rotation/rotation.conf"
+expect_eq "ROTATION_QUEUE_FINAL_STATES without withdrawn: that row FAILs again" "$(level "$(run)" 3)" FAIL
+restore
 edit plan-state.md '| lane | id | status |' '| track | id | status |'; case_fail "queue header not recognised" 3
 edit plan-state.md '| control | CT-dry | queued | boil-dry cutoff |' '| control | CT-dry | queued |'; case_fail "queue row with eight cells" 3
 python3 - "$C/plan-state.md" <<'PY'

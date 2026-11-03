@@ -12,6 +12,7 @@
 #                           `lane|id|status|summary|source|registered|acceptance|blocked_by|done`), every row nine
 #                           cells, the id `<prefix>-<name>`, the state one of ROTATION_QUEUE_STATES (default
 #                           在做,排队,已完成,等决定,撤回 and active,queued,done,decision,withdrawn), acceptance not empty
+#                           unless the state is final (ROTATION_QUEUE_FINAL_STATES, default 已完成,撤回,done,withdrawn)
 #   step.4  L3a / L3b       the plan has a hot queue heading (L3a) and a cold queue heading (L3b)
 #   step.5  L4              the plan has an L4 trigger predicate section, not empty, with no `<digits>%` in it
 #   step.6  stamps          ROTATION_STAMPS not empty; every stamp of the close rules table is in it (or is the
