@@ -21,7 +21,7 @@
 
 set -u
 
-ROTATION_KERNEL_VERSION="1.3.0"
+ROTATION_KERNEL_VERSION="2.0.0"
 
 # ── Path discovery ──────────────────────────────────────────────────────
 # AUTORUN_DIR = the kernel directory (this file's parent, the plugin's bin/).

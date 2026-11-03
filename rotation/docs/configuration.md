@@ -8,7 +8,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 
 | Key | Required | Default | Meaning |
 |---|---|---|---|
-| `ROTATION_CONF_KERNEL` | yes | — | the kernel major this file was written for (`1`, or `1.1` to record the minor); a major mismatch is exit 2 everywhere, a minor difference a doctor WARN |
+| `ROTATION_CONF_KERNEL` | yes | — | the kernel major this file was written for (`2`, or `2.0` to record the minor); a major mismatch is exit 2 everywhere, a minor difference a doctor WARN |
 | `ROTATION_TRIG1_MIN_COMMITS` | yes | — | TRIG-1a: commit floor N. No kernel default on purpose: it is the project's measurement |
 | `ROTATION_TRIG1_MIN_CLOSED` | yes | — | TRIG-1b: shas on `closed:` from this round (template: 3) |
 | `ROTATION_TRIG2_MIN_WALL_SEC` / `_MAX_WALL_SEC` | yes | — | TRIG-2 floor and cap in seconds; past the cap TRIG-1a is waived |
