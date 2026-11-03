@@ -3,7 +3,9 @@
 # One page of the scene after an interruption (session restart, account
 # switch, quota, a lost background task), and what to do next. Read-only.
 #
-# usage: recover.sh [--json] [--no-probe]
+# usage: recover.sh [--all] [--json] [--no-probe]
+#   --all       every lane of the project in turn (the first lane, then each .claude/rotation-lanes/<lane>/),
+#               each page after a `== lane <name> ==` line; the exit code is the highest of the runs
 #   --json      the same content as one JSON document (the action is its `action` key)
 #   --no-probe  skip the remote probe and the remote terminal-marker checks
 #
@@ -40,12 +42,21 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
+ALL=0
 for arg in "$@"; do
   case "$arg" in
     --json|--no-probe) ;;
-    *) echo "usage: recover.sh [--json] [--no-probe]" >&2; exit 2 ;;
+    --all) ALL=1 ;;
+    *) echo "usage: recover.sh [--all] [--json] [--no-probe]" >&2; exit 2 ;;
   esac
 done
+if [ "$ALL" -eq 1 ]; then
+  . "$SCRIPT_DIR/lane_lib.sh"
+  rest=()
+  for arg in "$@"; do [ "$arg" = --all ] || rest+=("$arg"); done
+  autorun_run_all "$SCRIPT_DIR/recover.sh" ${rest[@]+"${rest[@]}"}
+  exit $?
+fi
 
 export ROTATION_REPO="${ROTATION_REPO:-$PROJECT_DIR}"
 export ROTATION_EVENTS_LOG="$EVENTS_LOG"
