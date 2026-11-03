@@ -56,9 +56,9 @@ The file paths are the defaults; a project that keeps them elsewhere sets `ROTAT
 
 ### Step 3 — the queue table
 
-- **Do**: one machine-readable table of every item of work, one row each, with the header `| 通道 | id | 状态 | 一句话 | 出处 | 登记 | 验收 | blocked_by | done |` (or `| lane | id | status | summary | source | registered | acceptance | blocked_by | done |`, or the project's own nine names in `ROTATION_QUEUE_HEADER`). `id` is `<prefix>-<name>`, the prefix naming the line of work. State is one of `ROTATION_QUEUE_STATES` (default 在做 / 排队 / 已完成 / 等决定 / 撤回, or active / queued / done / decision / withdrawn); "waiting for X" goes into `blocked_by`, not the state. `acceptance` is the command or observable fact that says the item is done. `done` is the commit that finished it.
+- **Do**: one machine-readable table of every item of work, one row each, with the header `| 通道 | id | 状态 | 一句话 | 出处 | 登记 | 验收 | blocked_by | done |` (or `| lane | id | status | summary | source | registered | acceptance | blocked_by | done |`, or the project's own nine names in `ROTATION_QUEUE_HEADER`). `id` is `<prefix>-<name>`, the prefix naming the line of work. State is one of `ROTATION_QUEUE_STATES` (default 在做 / 排队 / 已完成 / 等决定 / 撤回, or active / queued / done / decision / withdrawn); "waiting for X" goes into `blocked_by`, not the state. `acceptance` is the command or observable fact that says the item is done. It is required on every row that is still open; a row in a final state (`ROTATION_QUEUE_FINAL_STATES`, default 已完成 / 撤回 and done / withdrawn) is history and may leave it empty. `done` is the commit that finished it.
 - **Why**: the executor's prompt, the handoff's next items and the dashboard all name items by id; an item without an acceptance can never be closed by evidence, only by opinion.
-- **Check**: the header is found; every row has nine cells (`\|` inside a cell is fine), an id `<prefix>-<name>`, a listed state, a non-empty acceptance (`—` counts as empty).
+- **Check**: the header is found; every row has nine cells (`\|` inside a cell is fine), an id `<prefix>-<name>`, a listed state, a non-empty acceptance (`—` counts as empty) unless the state is final.
 - **Example**:
   ```
   | lane | id | status | summary | source | registered | acceptance | blocked_by | done |
