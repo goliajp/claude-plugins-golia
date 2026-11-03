@@ -44,7 +44,7 @@
 #  31  a threshold in the environment is ignored     → exit 1, TRIG-1 FAIL at the conf's N
 #  32  a threshold lowered in the conf takes effect  → exit 0, TRIG-1 PASS
 #  33  no rotation.conf                              → exit 2
-#  34  rotation.conf for another kernel major        → exit 2
+#  34  rotation.conf in another conf format         → exit 2
 #  35  the recorded row carries the effective conf   (thresholds / confSha256 / kernelVersion)
 #  36  an axis outside ROTATION_AXES                 → exit 1, TRIG-3 FAIL
 #  37  the English section heading is accepted       → exit 0, TRIG-3 PASS
@@ -445,9 +445,9 @@ CONF="$TMP/conf-low.conf" run_case "32 conf threshold takes effect" 0 'TRIG-1 PA
 # 33 — no conf at all is a configuration error, not a gate result.
 CONF="$TMP/does-not-exist.conf" run_case "33 missing rotation.conf" 2 'no rotation.conf'
 
-# 34 — a conf written for another kernel major is refused.
+# 34 — a conf written in another conf format is refused.
 mk_conf "$TMP/conf-v9.conf" 'ROTATION_CONF_KERNEL=9'
-CONF="$TMP/conf-v9.conf" run_case "34 conf for another kernel major" 2 'written for kernel major 9'
+CONF="$TMP/conf-v9.conf" run_case "34 conf in another conf format" 2 'written for conf format 9'
 
 # 35 — the row the trigger writes carries the effective conf.
 mk_log "$TMP/rot.jsonl" 7200 12

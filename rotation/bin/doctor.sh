@@ -4,7 +4,9 @@
 # adopting (and after a kernel upgrade): every contract the kernel relies on
 # is checked and reported on its own line.
 #
-# usage: doctor.sh
+# usage: doctor.sh | doctor.sh --all
+#   --all   every lane of the project in turn (the first lane, then each .claude/rotation-lanes/<lane>/), each
+#           run's output after a `== lane <name> ==` line; the exit code is the highest of the runs
 #
 # Output: one line per check, `PASS|FAIL|WARN <item> <detail>`; WARN never
 # fails the run. Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256, 12 hex>`
@@ -12,8 +14,8 @@
 # verdict (doctor.result, doctor.failed, doctor.kernel, doctor.confSha256).
 #
 # What is checked:
-#   conf          rotation.conf present and parsed; ROTATION_CONF_KERNEL major equals the kernel's (a minor
-#                 that differs is a WARN); the integer thresholds, the mode keys (trigger|active, enforce|observe,
+#   conf          rotation.conf present and parsed; ROTATION_CONF_KERNEL (before any dot) equals the kernel's
+#                 conf format ROTATION_CONF_FORMAT, not its version; the integer thresholds, the mode keys (trigger|active, enforce|observe,
 #                 on|off), AXES / STAMPS / SWEEP_STAMP non-empty, CLOSE_RULES set
 #   project.sh    present, parses (bash -n), the required variables set: ROTATION_STAMP_DIR, ROTATION_VERDICT_DIR,
 #                 ROTATION_SWEEP_LINE_CMD, ROTATION_GATE_CMD, ROTATION_PREFLIGHT_CMD, ROTATION_CLOSE_SEGMENT_CMD,
@@ -28,6 +30,9 @@
 #   rules         the close rules table parses (close_lib.py load_rules) and is not empty
 #   executors     running rotation executors of this round ≤ 1 (recover.sh's reading)
 #   git           a work tree; the base branch (ROTATION_BASE_BRANCH, else the current branch) exists
+#   plan.*        onboard_check.sh's steps 3, 5 and 7: plan.queue (the queue table), plan.l4 (the L4 trigger
+#                 predicates, no percentage), plan.handoff (the trigger section's axis: / closed: / gate:); a plan
+#                 file or handoff that does not exist yet is a WARN
 #
 # exit: 0 every check passed · 1 a check failed · 2 usage
 
@@ -36,7 +41,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-[ "$#" -eq 0 ] || { echo "usage: doctor.sh" >&2; exit 2; }
+if [ "${1:-}" = --all ] && [ "$#" -eq 1 ]; then
+  . "$SCRIPT_DIR/lane_lib.sh"
+  autorun_run_all "$SCRIPT_DIR/doctor.sh"
+  exit $?
+fi
+[ "$#" -eq 0 ] || { echo "usage: doctor.sh | doctor.sh --all" >&2; exit 2; }
 # a lane says so first: every path below is that lane's (docs/lanes.md)
 [ -z "$ROTATION_LANE" ] || echo "PASS lane $ROTATION_LANE ($PROJECT_ROTATION_DIR; state $STATE_DIR)"
 
@@ -61,29 +71,19 @@ cmd_ok() {
 conf_parsed=1
 case "$ROTATION_CONF_ERROR" in
   '') pass conf "$ROTATION_CONF_FILE sha256=${ROTATION_CONF_SHA256:0:12}" ;;
-  *'written for kernel major'*) pass conf "$ROTATION_CONF_FILE sha256=${ROTATION_CONF_SHA256:0:12}" ;;
+  *'written for conf format'*) pass conf "$ROTATION_CONF_FILE sha256=${ROTATION_CONF_SHA256:0:12}" ;;
   *) fail conf "$ROTATION_CONF_ERROR"; conf_parsed=0 ;;
 esac
 
 if [ "$conf_parsed" -eq 1 ]; then
   conf_kernel="${ROTATION_CONF_KERNEL:-}"
-  kernel_major=${ROTATION_KERNEL_VERSION%%.*}
-  kernel_minor=$(printf '%s' "$ROTATION_KERNEL_VERSION" | cut -d. -f2)
   if [ -z "$conf_kernel" ]; then
-    fail conf.kernel "ROTATION_CONF_KERNEL missing (this kernel is $ROTATION_KERNEL_VERSION; write its major, $kernel_major)"
-  elif [ "${conf_kernel%%.*}" != "$kernel_major" ]; then
-    fail conf.kernel "rotation.conf is written for kernel major ${conf_kernel%%.*}, this kernel is $ROTATION_KERNEL_VERSION"
+    fail conf.kernel "ROTATION_CONF_KERNEL missing (kernel $ROTATION_KERNEL_VERSION reads conf format $ROTATION_CONF_FORMAT; write $ROTATION_CONF_FORMAT)"
+  elif [ "${conf_kernel%%.*}" != "$ROTATION_CONF_FORMAT" ]; then
+    fail conf.kernel "rotation.conf is written for conf format ${conf_kernel%%.*}, kernel $ROTATION_KERNEL_VERSION reads conf format $ROTATION_CONF_FORMAT"
   else
-    case "$conf_kernel" in
-      *.*)
-        conf_minor=$(printf '%s' "$conf_kernel" | cut -d. -f2)
-        if [ "$conf_minor" != "$kernel_minor" ]; then
-          warn conf.kernel "rotation.conf is written for kernel $conf_kernel, this kernel is $ROTATION_KERNEL_VERSION (same major; review the keys added since)"
-        else
-          pass conf.kernel "conf $conf_kernel · kernel $ROTATION_KERNEL_VERSION"
-        fi ;;
-      *) pass conf.kernel "conf major $conf_kernel · kernel $ROTATION_KERNEL_VERSION" ;;
-    esac
+    # a digit after the dot is a kernel minor recorded before 2.0.0; it is not compared
+    pass conf.kernel "conf format $ROTATION_CONF_FORMAT · kernel $ROTATION_KERNEL_VERSION"
   fi
 
   keys_bad=0
@@ -268,6 +268,22 @@ if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 else
   fail git "not a git work tree: $PROJECT_DIR"
+fi
+
+# ── the plan's shape (onboarding steps 3, 5 and 7) ──────────────────────
+plan_out=$(bash "$SCRIPT_DIR/onboard_check.sh" --doctor 2>&1)
+rc=$?
+if [ "$rc" -gt 1 ]; then
+  fail plan "onboard_check.sh --doctor exit $rc: $(printf '%s\n' "$plan_out" | tail -1)"
+else
+  while IFS= read -r line; do
+    case "$line" in
+      'FAIL '*) line=${line#FAIL }; fail "${line%% *}" "${line#* }" ;;
+      'PASS '*|'WARN '*) printf '%s\n' "$line" ;;
+    esac
+  done <<PLAN
+$plan_out
+PLAN
 fi
 
 # ── verdict ─────────────────────────────────────────────────────────────

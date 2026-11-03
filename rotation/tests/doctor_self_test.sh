@@ -28,7 +28,6 @@ expect_not() { if printf '%s\n' "$2" | grep -qE -- "$3"; then bad "$1 (/$3/ pres
 last() { printf '%s\n' "$1" | tail -1; }
 nfails() { printf '%s\n' "$1" | grep -c '^FAIL '; }
 KERNEL_VERSION=$(sed -nE 's/^ROTATION_KERNEL_VERSION="([^"]+)"$/\1/p' "$KBIN/lib.sh")
-KERNEL_MINOR=$(printf '%s' "$KERNEL_VERSION" | cut -d. -f2)
 
 # ── the fixture ─────────────────────────────────────────────────────────
 # setup <name>: a repository on develop with one commit, the round's row, a sweep stamp and an axis stamp,
@@ -143,26 +142,26 @@ expect_has "3 empty axes named" "$out" '^FAIL conf.ROTATION_AXES'
 expect_has "3 empty stamp list named" "$out" '^FAIL conf.ROTATION_STAMPS'
 expect_eq "3 the count matches the FAIL lines" "$(last "$out")" "DOCTOR FAIL n=$(nfails "$out")"
 
-# ── 4. conf written for another kernel major ────────────────────────────
-setup major
+# ── 4. the conf format, not the kernel version, decides ────────────────
+setup format1
+set_key _ ROTATION_CONF_KERNEL 1
+out=$(doctor); rc=$?
+expect_eq "4 conf format 1 on kernel $KERNEL_VERSION: exit 0" "$rc" 0
+expect_has "4 PASS conf.kernel names the format and the kernel" "$out" "^PASS conf.kernel conf format 1 · kernel $KERNEL_VERSION"
+expect_has "4 DOCTOR PASS" "$out" '^DOCTOR PASS kernel='
+setup format2
 set_key _ ROTATION_CONF_KERNEL 2
 out=$(doctor); rc=$?
-expect_eq "4 other major: exit 1" "$rc" 1
-expect_has "4 conf.kernel names both" "$out" "^FAIL conf.kernel rotation.conf is written for kernel major 2, this kernel is $KERNEL_VERSION"
-expect_has "4 the keys are still checked under a major mismatch" "$out" '^PASS conf.keys'
+expect_eq "4 conf format 2: exit 1" "$rc" 1
+expect_has "4 conf.kernel says conf format" "$out" "^FAIL conf.kernel rotation.conf is written for conf format 2, kernel $KERNEL_VERSION reads conf format 1"
+expect_has "4 the keys are still checked under a format mismatch" "$out" '^PASS conf.keys'
 
-# ── 5. same major, other minor: a warning only ──────────────────────────
-setup minor
-set_key _ ROTATION_CONF_KERNEL "${KERNEL_VERSION%%.*}.$(( KERNEL_MINOR + 7 ))"
+# ── 5. a dotted value from before 2.0.0: only the part before the dot counts
+setup dotted
+set_key _ ROTATION_CONF_KERNEL 1.3
 out=$(doctor); rc=$?
-expect_eq "5 other minor: exit 0" "$rc" 0
-expect_has "5 WARN conf.kernel" "$out" "^WARN conf.kernel rotation.conf is written for kernel ${KERNEL_VERSION%%.*}.$(( KERNEL_MINOR + 7 )), this kernel is $KERNEL_VERSION"
-expect_has "5 DOCTOR PASS" "$out" '^DOCTOR PASS kernel='
-setup sameminor
-set_key _ ROTATION_CONF_KERNEL "${KERNEL_VERSION%%.*}.$KERNEL_MINOR"
-out=$(doctor); rc=$?
-expect_eq "5 same minor spelled out: exit 0" "$rc" 0
-expect_has "5 PASS conf.kernel" "$out" '^PASS conf.kernel'
+expect_eq "5 conf 1.3: exit 0" "$rc" 0
+expect_has "5 PASS conf.kernel" "$out" '^PASS conf.kernel conf format 1'
 # a conf still setting the removed wake key: a warning naming the flag that replaced it, not a failure
 setup oldwake
 set_key _ ROTATION_WAKE_AFTER 300
