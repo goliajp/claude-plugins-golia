@@ -4,7 +4,9 @@
 # adopting (and after a kernel upgrade): every contract the kernel relies on
 # is checked and reported on its own line.
 #
-# usage: doctor.sh
+# usage: doctor.sh | doctor.sh --all
+#   --all   every lane of the project in turn (the first lane, then each .claude/rotation-lanes/<lane>/), each
+#           run's output after a `== lane <name> ==` line; the exit code is the highest of the runs
 #
 # Output: one line per check, `PASS|FAIL|WARN <item> <detail>`; WARN never
 # fails the run. Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256, 12 hex>`
@@ -28,6 +30,9 @@
 #   rules         the close rules table parses (close_lib.py load_rules) and is not empty
 #   executors     running rotation executors of this round ≤ 1 (recover.sh's reading)
 #   git           a work tree; the base branch (ROTATION_BASE_BRANCH, else the current branch) exists
+#   plan.*        onboard_check.sh's steps 3, 5 and 7: plan.queue (the queue table), plan.l4 (the L4 trigger
+#                 predicates, no percentage), plan.handoff (the trigger section's axis: / closed: / gate:); a plan
+#                 file or handoff that does not exist yet is a WARN
 #
 # exit: 0 every check passed · 1 a check failed · 2 usage
 
@@ -36,7 +41,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-[ "$#" -eq 0 ] || { echo "usage: doctor.sh" >&2; exit 2; }
+if [ "${1:-}" = --all ] && [ "$#" -eq 1 ]; then
+  . "$SCRIPT_DIR/lane_lib.sh"
+  autorun_run_all "$SCRIPT_DIR/doctor.sh"
+  exit $?
+fi
+[ "$#" -eq 0 ] || { echo "usage: doctor.sh | doctor.sh --all" >&2; exit 2; }
 # a lane says so first: every path below is that lane's (docs/lanes.md)
 [ -z "$ROTATION_LANE" ] || echo "PASS lane $ROTATION_LANE ($PROJECT_ROTATION_DIR; state $STATE_DIR)"
 
@@ -268,6 +278,22 @@ if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 else
   fail git "not a git work tree: $PROJECT_DIR"
+fi
+
+# ── the plan's shape (onboarding steps 3, 5 and 7) ──────────────────────
+plan_out=$(bash "$SCRIPT_DIR/onboard_check.sh" --doctor 2>&1)
+rc=$?
+if [ "$rc" -gt 1 ]; then
+  fail plan "onboard_check.sh --doctor exit $rc: $(printf '%s\n' "$plan_out" | tail -1)"
+else
+  while IFS= read -r line; do
+    case "$line" in
+      'FAIL '*) line=${line#FAIL }; fail "${line%% *}" "${line#* }" ;;
+      'PASS '*|'WARN '*) printf '%s\n' "$line" ;;
+    esac
+  done <<PLAN
+$plan_out
+PLAN
 fi
 
 # ── verdict ─────────────────────────────────────────────────────────────

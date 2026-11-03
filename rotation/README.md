@@ -47,9 +47,11 @@ In a session whose working directory is inside the project's git repository, run
 | `.claude/rotation/rotation.conf` | from `templates/rotation.conf.example`, written once: thresholds, axes, stamp list, switches |
 | `.claude/rotation/close_rules.tsv` | from `templates/close_rules.tsv.example`, written once: the close planner's rules table |
 | `.claude/rotation-state/` | `rotations.jsonl`, `events.jsonl`, `manager.active`, `handoff/<rid>.md` — append-only state, never inside the plugin directory |
-| `.claude/rotation-lanes/<lane>/`, `.claude/rotation-state/lanes/<lane>/` | a lane (`init.sh --lane <name>`): a second instance of the protocol — its own shims, conf, project.sh, rules table, handoff and state — run by its own executor in its own worktree on its own branch; [docs/lanes.md](docs/lanes.md) |
+| `.claude/rotation-lanes/<lane>/`, `.claude/rotation-state/lanes/<lane>/` | a lane (`init.sh --lane <name> [--from <lane>]`): a second instance of the protocol — its own shims, conf, project.sh, rules table, handoff and state — run by its own executor in its own worktree on its own branch; [docs/lanes.md](docs/lanes.md) |
 
 Without Claude: `CLAUDE_PLUGIN_ROOT=<plugin dir> bash <plugin dir>/bin/init.sh` from inside the repository does the same. `--force` rewrites the shims and `kernel.path`; it never touches the three project files.
+
+After wiring, `/rotation:init` walks the project through onboarding: eight steps — vision, roadmap L1 and version scope L2, the queue table, the hot and cold queues L3a / L3b, the L4 trigger predicates, the stamps and rules table, the handoff's trigger section, and (with lanes) each lane's description — each checked by `bin/onboard_check.sh` before the next (`PASS|WARN|FAIL step.<n> …`, last line `ONBOARD PASS|FAIL`). The step-by-step guide with an example project is the command itself, `commands/init.md`.
 
 Then edit `project.sh` and `rotation.conf`, write the adapter commands they name ([docs/configuration.md](docs/configuration.md); a complete minimal adapter is in [docs/adoption.md](docs/adoption.md)), and run the doctor:
 
@@ -67,6 +69,9 @@ Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256 prefix>` means the project ca
 | Turn-end gate INV-1..5 | `Stop` hook → `stop_hook.sh` → `check.sh` | at every turn end while an intent is pending; green consumes the intent, red keeps it for the next turn end |
 | Close planner | `close_plan.sh [<prev> [<head>]]`, `close_verdict_fill.sh <rid>`, `carry_stamp.sh` | at close: per check, diff from its stamp's sha to HEAD against its trigger paths → run or carry; the verdict `<rid>.verdict.md/.json` in `ROTATION_VERDICT_DIR` |
 | Adapter commands | `adapter_run.sh gate\|preflight\|close-segment\|bench …` | the kernel's only call site for the project's heavy commands; exit 0 without the contract's terminal line and events is refused (exit 64) |
+| Onboarding | `onboard_check.sh [--lane <name>]` | while wiring a project (`/rotation:init`); `doctor.sh` re-runs steps 3, 5 and 7 as `plan.queue`, `plan.l4`, `plan.handoff` |
+| Lanes | `lanes.sh [--json]`, `doctor.sh --all`, `recover.sh --all`, `watchdog.sh --all` | any time with more than one lane: every lane on one page, each command once per lane under `== lane <name> ==` |
+| Lane close and merge | `lane_close.sh`, `lane_merge.sh <tag>`, `lane_merge.sh --returned <tag> <reason> [<revert>]` | a lane's executor closes its round (merge the base, hook, trigger, tag, inbox row, `lane.ready`); the merging lane takes the tag (`lane.merge.start` / `.end`) or hands it back (`lane.returned`); [docs/lanes.md](docs/lanes.md) |
 | Lane worktree | `lane_enter.sh <lane> [--share <dir>]` | once, inside a lane executor's worktree: a `.claude/` of links to the main tree's (own `worktrees/`, the lane's handoff) and the shared directories the lane's conf names |
 | Recovery | `recover.sh [--json] [--no-probe]` | after any interruption: one page of the scene, last line `RESUME <id>` / `CLEAN main tree first` / `RESPAWN executor leftover=…` / `IDLE` |
 | Watchdog | `watchdog.sh [--interval] [--stale] [--wake] [--dirty] [--once]` | beside a running round; exits with the reason: WAKE 10 / STALE 11 / QUOTA 12 / DIRTY 13 / FOREIGN-COMMIT 14 / MULTI-EXECUTOR 15 |
@@ -85,7 +90,7 @@ A project that has not run `/rotation:init` is untouched by all three: no `.clau
 
 ## Exit codes
 
-Scripts print their usage on a wrong argument count or an unknown option (exit 2); none takes `--help`. `trig_gate.sh` 0 / 1 FAIL / 2 configuration · `trigger.sh` 0 / 1 blocked / 2 usage or configuration / 3 `manual` without a terminal · `check.sh` 0 / 1 / 2 · `close_plan.sh` 0 / 2 · `adapter_run.sh` the command's own / 2 not registered / 64 claim without record · `doctor.sh` 0 / 1 / 2 · `watchdog.sh` 10–15 as above, 0 only with `--once` · `recover.sh` 0 / 2 · `agent_log.sh`, `manager_log.sh`, `event.sh` 0 / 2.
+Scripts print their usage on a wrong argument count or an unknown option (exit 2); none takes `--help`. `trig_gate.sh` 0 / 1 FAIL / 2 configuration · `trigger.sh` 0 / 1 blocked / 2 usage or configuration / 3 `manual` without a terminal · `check.sh` 0 / 1 / 2 · `close_plan.sh` 0 / 2 · `adapter_run.sh` the command's own / 2 not registered / 64 claim without record · `doctor.sh` 0 / 1 / 2 · `watchdog.sh` 10–15 as above, 0 only with `--once` · `recover.sh` 0 / 2 · `--all` modes the highest of the lanes' codes · `onboard_check.sh` 0 / 1 / 2 · `lanes.sh` 0 / 2 · `lane_close.sh` 0 / 1 / 2 / 3 conflict · `lane_merge.sh` 0 / 1 / 2 / 3 conflict · `agent_log.sh`, `manager_log.sh`, `event.sh` 0 / 2.
 
 ## Tests
 
@@ -93,7 +98,7 @@ Scripts print their usage on a wrong argument count or an unknown option (exit 2
 bash <plugin dir>/tests/run_all.sh
 ```
 
-Seven self-tests (trigger gate, turn-end gate, close planner, recovery and watchdog, doctor, hooks, and one whole round end to end — including the Stop hook consuming the intent and a round interrupted in every way the recovery page and the watchdog know) against throwaway repositories and state; none reads any installed project.
+Ten self-tests (trigger gate, turn-end gate, close planner, recovery and watchdog, doctor, hooks, init, lanes — including `--from`, `lanes.sh`, the `--all` modes, `lane_close.sh` and `lane_merge.sh` —, onboarding, and one whole round end to end — including the Stop hook consuming the intent and a round interrupted in every way the recovery page and the watchdog know) against throwaway repositories and state; none reads any installed project.
 
 ## Update
 
@@ -114,6 +119,7 @@ claude plugin uninstall rotation
 
 ## Changelog
 
+- **0.3.0** — kernel 1.3.0. Onboarding: `/rotation:init` walks a project through eight checked steps (vision, roadmap L1 / version scope L2, the queue table, L3a / L3b, L4 trigger predicates without percentages, stamps and rules, the handoff's trigger section, lane descriptions); `bin/onboard_check.sh` checks them, and `doctor.sh` adds `plan.queue`, `plan.l4`, `plan.handoff` before its verdict line (WARN while the plan or the handoff does not exist yet). Lanes: `init.sh --lane <name> --from <lane>` copies another lane's files with its name replaced; `lanes.sh` lists every lane; `doctor.sh`, `recover.sh` and `watchdog.sh` take `--all`; `lane_close.sh` closes a lane's round (merge the base, hook, trigger, tag `lane/<lane>/<rid>`, inbox row, `lane.ready`) and `lane_merge.sh` merges a tag or hands it back (`lane.merge.start` / `lane.merge.end` / `lane.returned`, joined by `tag`). New conf keys `ROTATION_PLAN_FILE`, `ROTATION_VISION_FILE`, `ROTATION_QUEUE_HEADER`, `ROTATION_QUEUE_STATES`, `ROTATION_LANES_DOC`, `ROTATION_MERGE_FROM`, `ROTATION_INBOX_FILE`, `ROTATION_INBOX_INSERT_LINE`, all with defaults. Existing commands keep their output, except that `doctor.sh` now FAILs a plan file whose queue table or L4 section is out of shape (run `onboard_check.sh` first). A project wired earlier gets the new shims with `init.sh --force` (and `init.sh --lane <name> --force` per lane).
 - **0.1.6** — kernel 1.1.7. The watchdog no longer takes an executor that polls its workers in one foreground call for stopped: while a worker, reviewer or research agent of the round is still registered as running and its transcript was written within `--wake` seconds, neither WAKE on a silent executor fires, and that transcript write counts as a sign of life for STALE. `--wake` now also sets the wait after a `remote.end`; the `ROTATION_WAKE_AFTER` conf key is gone (`doctor.sh` warns while a conf still sets it). Self-tests +20.
 - **0.1.5** — kernel 1.1.6. A worktree-isolated worker is never continued by `SendMessage`: in Claude Code 2.1.28x–2.1.29x that moves the sender's working directory into the worker's worktree and the worktree guard refuses the sender's main-tree git until the worker's next completion (five rounds hit it). The recover page's `dead?` line, the executor skill, the executor template and the recovery notes now say: re-spawn a fresh isolated worker from the old worker's branch `worktree-agent-<id>`; `SendMessage` remains for agents without isolation. Self-tests +2.
 - **0.1.4** — kernel 1.1.5. Runner jobs are ended only by the pid they registered: `remote_run.sh <host> <command> <fields…>` has the runner's shell print its pid first and records `remote.start` with `remote.pid`, `remote.pidStart` and `remote.launcher`; the recover page marks an open job whose launcher is gone `orphan?` and prints the command that ends that pid and its descendants (start time checked first), or, with no pid registered, a note to confirm by hand; the trigger's reaper ends the round's open runner jobs the same way and no longer runs `ROTATION_REAP_REMOTE_CMD` (a pattern kill). No kernel output contains `pkill -f` or `pgrep -f`. Self-tests +30.

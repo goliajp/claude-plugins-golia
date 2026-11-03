@@ -31,8 +31,14 @@
 # The main lane must be wired first (its kernel.path is the one the lane's
 # shims read); nothing of the main lane is touched.
 #
-# usage: init.sh [--force] | init.sh --lane <name> [--force]
-# exit: 0 written · 1 not inside a git work tree / main lane not wired · 2 usage
+# `--from <lane>` copies the three files from that lane instead of the main
+# lane's, with the source lane's name replaced by the new one wherever it
+# names the lane: `rotation-lanes/<from>`, `lanes/<from>`, `lane-<from>`,
+# `lane/<from>`, `lane \`<from>\``, `lane <from>` (the name followed by
+# anything but a letter, digit or dash). Each copy prints its replacement count.
+#
+# usage: init.sh [--force] | init.sh --lane <name> [--from <lane>] [--force]
+# exit: 0 written · 1 not inside a git work tree / main lane not wired / no lane <from> · 2 usage
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -40,13 +46,18 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 FORCE=0
 LANE=""
+FROM=""
+usage() { echo "usage: init.sh [--force] | init.sh --lane <name> [--from <lane>] [--force]" >&2; exit 2; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
-    --lane) [ "$#" -ge 2 ] || { echo "usage: init.sh [--force] | init.sh --lane <name> [--force]" >&2; exit 2; }; LANE=$2; shift 2 ;;
-    *) echo "usage: init.sh [--force] | init.sh --lane <name> [--force]" >&2; exit 2 ;;
+    --lane) [ "$#" -ge 2 ] || usage; LANE=$2; shift 2 ;;
+    --from) [ "$#" -ge 2 ] || usage; FROM=$2; shift 2 ;;
+    *) usage ;;
   esac
 done
+[ -z "$FROM" ] || [ -n "$LANE" ] || usage
+case "$FROM" in *[!a-z0-9-]*) echo "init: --from lane must match [a-z0-9-]+, got '$FROM'" >&2; exit 2 ;; esac
 case "$LANE" in ''|[a-z0-9-]*) ;; esac
 case "$LANE" in *[!a-z0-9-]*) echo "init: lane must match [a-z0-9-]+, got '$LANE'" >&2; exit 2 ;; esac
 
@@ -57,6 +68,11 @@ PROJECT_DIR=$(git rev-parse --show-toplevel 2>/dev/null) || {
 MAIN_DEST="$PROJECT_DIR/.claude/rotation"
 if [ -n "$LANE" ]; then
   [ -f "$MAIN_DEST/kernel.path" ] || { echo "init: wire the main lane first (no $MAIN_DEST/kernel.path)" >&2; exit 1; }
+  if [ -n "$FROM" ]; then
+    FROM_DEST="$PROJECT_DIR/.claude/rotation-lanes/$FROM"
+    [ -f "$FROM_DEST/rotation.conf" ] || { echo "init: no lane '$FROM' to copy from (no $FROM_DEST/rotation.conf)" >&2; exit 1; }
+    [ "$FROM" != "$LANE" ] || { echo "init: --from names the lane being wired ($LANE)" >&2; exit 2; }
+  fi
   DEST="$PROJECT_DIR/.claude/rotation-lanes/$LANE"
   STATE="$PROJECT_DIR/.claude/rotation-state/lanes/$LANE"
   # the shims of a lane: root three levels up, kernel.path the main lane's, the lane exported
@@ -74,7 +90,8 @@ mkdir -p "$DEST" "$STATE"
 
 # the entry points a project calls by name; hooks and this script need no shim
 SHIMS="trigger.sh trig_gate.sh check.sh close_plan.sh close_verdict_fill.sh carry_stamp.sh recover.sh watchdog.sh
-event.sh agent_log.sh manager_log.sh report_save.sh adapter_run.sh remote_run.sh doctor.sh stats.sh log.sh kill_stray_shells.sh"
+event.sh agent_log.sh manager_log.sh report_save.sh adapter_run.sh remote_run.sh doctor.sh stats.sh log.sh kill_stray_shells.sh
+onboard_check.sh lanes.sh lane_close.sh lane_merge.sh"
 
 if [ -z "$LANE" ]; then
   printf '%s\n' "$PLUGIN_ROOT" > "$DEST/kernel.path"
@@ -105,6 +122,20 @@ echo "init: $written shims in $DEST"
 for t in project.sh rotation.conf close_rules.tsv; do
   if [ -e "$DEST/$t" ]; then
     echo "init: $DEST/$t kept (the project's)"
+  elif [ -n "$FROM" ] && [ -f "$FROM_DEST/$t" ]; then
+    n=$(python3 - "$FROM_DEST/$t" "$DEST/$t" "$FROM" "$LANE" <<'PY'
+import re, sys
+src, dst, old, new = sys.argv[1:5]
+text = open(src, encoding="utf-8").read()
+# longest spelling first, so rotation-lanes/<from> is one replacement, not also a lanes/<from> one
+rx = re.compile(r"(rotation-lanes/|lanes/|lane-|lane/|lane \x60|lane )" + re.escape(old) + r"(?![A-Za-z0-9-])")
+text, n = rx.subn(lambda m: m.group(1) + new, text)
+open(dst, "w", encoding="utf-8").write(text)
+print(n)
+PY
+)
+    [ -x "$FROM_DEST/$t" ] && chmod +x "$DEST/$t"
+    echo "init: $DEST/$t copied from lane $FROM — $n replacement(s) $FROM → $LANE; edit it for the lane"
   elif [ -n "$LANE" ] && [ -f "$MAIN_DEST/$t" ]; then
     cp "$MAIN_DEST/$t" "$DEST/$t"
     echo "init: $DEST/$t copied from the main lane's — edit it for the lane"

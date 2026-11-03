@@ -32,6 +32,14 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_MESSAGES` | no | — | a `key=value` file overriding the verdict's human-read strings |
 | `ROTATION_LANE_SHARED_DIRS` | no | — | lanes only: top-level directories of the main tree that `lane_enter.sh` links into the lane's worktree, space-separated (e.g. `.dev`); [lanes.md](lanes.md) |
 | `ROTATION_LANE_NAME` | no | — | the name of the lane that has no directory (the project's first lane, `.claude/rotation/`): its events then carry `lane` like every other lane's. Unset, its rows are exactly what they were before lanes existed; [lanes.md](lanes.md) |
+| `ROTATION_PLAN_FILE` | no | `.claude/plan-state.md` | the plan `onboard_check.sh` (steps 2–5) and `doctor.sh` (`plan.queue`, `plan.l4`) read: L1 roadmap, L2 version scope, the queue table, L3a / L3b, L4 trigger predicates |
+| `ROTATION_VISION_FILE` | no | `.claude/vision.md` | the one-page direction file (step 1): a positioning section and a non-goals section |
+| `ROTATION_QUEUE_HEADER` | no | `通道\|id\|状态\|一句话\|出处\|登记\|验收\|blocked_by\|done` | the queue table's header, `\|`-separated: the same nine columns in the same order (lane, id, state, summary, source, registered, acceptance, blocked_by, done) under the project's own names. The English `lane\|id\|status\|summary\|source\|registered\|acceptance\|blocked_by\|done` is always accepted too |
+| `ROTATION_QUEUE_STATES` | no | `在做,排队,已完成,等决定,撤回` and `active,queued,done,decision,withdrawn` | the states a queue row may be in, comma-separated; setting it replaces both default lists |
+| `ROTATION_LANES_DOC` | no | the plan file | where each lane's description lives (step 8): a section headed by the lane's name naming its work line, independence, verification machine and merge protocol |
+| `ROTATION_MERGE_FROM` | no | `develop` | lanes: the branch `lane_close.sh` merges into the lane before its trigger |
+| `ROTATION_INBOX_FILE` | no | `.claude/autorun-inbox.md` | the inbox `lane_close.sh` and `lane_merge.sh --returned` write their rows into (created when missing) |
+| `ROTATION_INBOX_INSERT_LINE` | no | 65 | the line those rows land on (past the end of the file: appended) |
 
 ## project.sh
 
@@ -56,6 +64,7 @@ Sourced by the kernel with `PROJECT_DIR` set to the git top level; every value i
 | `ROTATION_REMOTE_COLLECT_CMD` | no | `<cmd> <kind> <sha> <log> <host> <rid>`: prints the commands that collect a finished job's results, one per line |
 | `ROTATION_BASE_BRANCH` | no | the branch worktrees are measured against (default: the main tree's current branch) |
 | `ROTATION_PROJECT_NAME` | no | the `project` field of each row (default: the checkout's directory name) |
+| `ROTATION_LANE_CLOSE_HOOK` | no | lanes: a command `lane_close.sh` runs (`sh -c`, in the lane's worktree) after merging `ROTATION_MERGE_FROM` and before the trigger — what the project regenerates after that merge. May be set in `rotation.conf` instead; non-zero exit stops the close |
 
 A project with no remote runner leaves the three `ROTATION_REMOTE_*` variables unset: its jobs record no `remote.host`, and the recovery tools read the local log files.
 

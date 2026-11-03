@@ -58,3 +58,16 @@ ROTATION_CLOSE_RULES=.claude/rotation/close_rules.tsv
 ROTATION_WORKER_STALE=1200
 # the close planner's message table (the verdict's language); kernel default is English
 # ROTATION_MESSAGES=.claude/rotation/messages.conf
+
+# the project's plan (onboard_check.sh, doctor.sh plan.*); defaults shown
+# ROTATION_PLAN_FILE=.claude/plan-state.md
+# ROTATION_VISION_FILE=.claude/vision.md
+# the queue table's header (nine columns, `|`-separated) and the states a row may be in
+# ROTATION_QUEUE_HEADER=通道|id|状态|一句话|出处|登记|验收|blocked_by|done
+# ROTATION_QUEUE_STATES=在做,排队,已完成,等决定,撤回
+# where each lane is described (default: the plan file)
+# ROTATION_LANES_DOC=.claude/plan-state.md
+# lanes: the branch lane_close.sh merges before its trigger, and the inbox row it writes
+# ROTATION_MERGE_FROM=develop
+# ROTATION_INBOX_FILE=.claude/autorun-inbox.md
+# ROTATION_INBOX_INSERT_LINE=65
