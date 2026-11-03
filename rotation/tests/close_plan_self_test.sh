@@ -328,7 +328,7 @@ grep -q '^## 1 What this rotation changed' "$TMP/verdicts/r-test-1.verdict.md" &
 TABLE="${ROTATION_MESSAGES_FIXTURE:-$SCRIPT_DIR/fixtures/messages.alt.conf}"
 if [ -f "$TABLE" ]; then
   tv() { sed -n "s/^$1=//p" "$TABLE"; }
-  printf 'ROTATION_CONF_KERNEL=1\nROTATION_MESSAGES=%s\n' "$TABLE" > "$TMP/conf-msgs.conf"
+  printf 'ROTATION_CONF_KERNEL=2\nROTATION_MESSAGES=%s\n' "$TABLE" > "$TMP/conf-msgs.conf"
   rm -f "$TMP/verdicts"/*
   out=$(CONF="$TMP/conf-msgs.conf" run_plan "$H3" "$H4" --explain); rc=$?
   check "16 message table: release word and decision words from the table" "$out" "$rc" 0 \
@@ -350,7 +350,7 @@ fi
 
 # 17 — a table naming a key the kernel does not have is a configuration error
 printf 'form_next=x\nno_such_key=y\n' > "$TMP/bad-msgs.conf"
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_MESSAGES=%s\n' "$TMP/bad-msgs.conf" > "$TMP/conf-badmsgs.conf"
+printf 'ROTATION_CONF_KERNEL=2\nROTATION_MESSAGES=%s\n' "$TMP/bad-msgs.conf" > "$TMP/conf-badmsgs.conf"
 rm -f "$TMP/verdicts"/*
 out=$(CONF="$TMP/conf-badmsgs.conf" run_plan "$H3" "$H4"); rc=$?
 check "17 unknown message key is refused" "$out" "$rc" 2 'not a message key: no_such_key=y'
@@ -363,8 +363,8 @@ lint_stamp() {  # lint_stamp <sha> <total> [ranAt]: the lint stamp, verdict ok (
   printf '{"tool":"lint_count","ranAt":"%s","headSha":"%s","headShaSource":"arg","verdict":"ok","total":%s,"distinctLints":4,"lints":{"a":1}}\n' \
     "${3:-2026-10-01T00:00:00Z}" "$1" "$2" > "$TMP/stamps/lint-latest.json"
 }
-printf 'ROTATION_CONF_KERNEL=1\n' > "$TMP/conf-on.conf"
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_CLOSE_CHECKS_OFF=lint\n' > "$TMP/conf-off.conf"
+printf 'ROTATION_CONF_KERNEL=2\n' > "$TMP/conf-on.conf"
+printf 'ROTATION_CONF_KERNEL=2\nROTATION_CLOSE_CHECKS_OFF=lint\n' > "$TMP/conf-off.conf"
 mk_stamps "$H1"
 lint_stamp "$H1" 197
 rm -f "$TMP/verdicts"/*
@@ -399,7 +399,7 @@ grep -qE '^\| lint \| ran \| [0-9a-f]{9} \| total=190\(-7\) distinctLints=4\(\+0
   && { echo "ok   18t section 3 shows the count with its delta"; pass=$(( pass + 1 )); } \
   || { echo "FAIL 18t lint row in section 3"; grep '^| lint' "$TMP/verdicts/r-test-1.verdict.md"; fail=$(( fail + 1 )); }
 # the switch naming a check the table does not have is a configuration error
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_CLOSE_CHECKS_OFF=nosuch\n' > "$TMP/conf-badoff.conf"
+printf 'ROTATION_CONF_KERNEL=2\nROTATION_CLOSE_CHECKS_OFF=nosuch\n' > "$TMP/conf-badoff.conf"
 rm -f "$TMP/verdicts"/*
 out=$(CONF="$TMP/conf-badoff.conf" RULES="$TMP/rules-lint.tsv" run_plan "$H1" "$H2"); rc=$?
 check "18x switch naming an unknown check is refused" "$out" "$rc" 2 'ROTATION_CLOSE_CHECKS_OFF names a check the table does not have: nosuch'

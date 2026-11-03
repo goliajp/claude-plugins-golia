@@ -101,7 +101,7 @@ run_case "case-6 INV-4 no section" 1 "INV-4 FAIL"
 
 # ── case 7 — INV-4 reads the project's heading ──────────────────────────
 echo "[case 7] INV-4 accepts the heading rotation.conf names → exit 0"
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_TRIGGER_SECTION=handover|rotate-trigger\n' > "$TMP/heading.conf"
+printf 'ROTATION_CONF_KERNEL=2\nROTATION_TRIGGER_SECTION=handover|rotate-trigger\n' > "$TMP/heading.conf"
 mk_handoff "handover" "gate: 10/0/0"
 CONF="$TMP/heading.conf" run_case "case-7 INV-4 project heading" 0 "INV-4 PASS"
 run_case "case-7b INV-4 that heading is not read without the conf" 1 "INV-4 FAIL"

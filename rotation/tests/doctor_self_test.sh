@@ -48,7 +48,7 @@ setup() {
   printf '{"tool":"bench","ranAt":"2026-01-01T00:00:00Z","headSha":"%s","verdict":"ok","median":0.5}\n' "$C0" > "$STAMPS/bench-latest.json"
   printf '#name\tpaths\tartifact\tstamp\tminutes\tmode\tsync_paths\tneeds\tshow\tregress\nsweep\tcrates/**\t-\tsweep\t1\tsync\t-\t-\tpass,passTotal\tpass:down\n' > "$R/rules.tsv"
   cat > "$R/rotation.conf" <<EOF
-ROTATION_CONF_KERNEL=1
+ROTATION_CONF_KERNEL=2
 ROTATION_TRIG1_MIN_COMMITS=12
 ROTATION_TRIG1_MIN_CLOSED=3
 ROTATION_TRIG2_MIN_WALL_SEC=1800
@@ -145,10 +145,10 @@ expect_eq "3 the count matches the FAIL lines" "$(last "$out")" "DOCTOR FAIL n=$
 
 # ── 4. conf written for another kernel major ────────────────────────────
 setup major
-set_key _ ROTATION_CONF_KERNEL 2
+set_key _ ROTATION_CONF_KERNEL "$(( ${KERNEL_VERSION%%.*} + 1 ))"
 out=$(doctor); rc=$?
 expect_eq "4 other major: exit 1" "$rc" 1
-expect_has "4 conf.kernel names both" "$out" "^FAIL conf.kernel rotation.conf is written for kernel major 2, this kernel is $KERNEL_VERSION"
+expect_has "4 conf.kernel names both" "$out" "^FAIL conf.kernel rotation.conf is written for kernel major $(( ${KERNEL_VERSION%%.*} + 1 )), this kernel is $KERNEL_VERSION"
 expect_has "4 the keys are still checked under a major mismatch" "$out" '^PASS conf.keys'
 
 # ── 5. same major, other minor: a warning only ──────────────────────────

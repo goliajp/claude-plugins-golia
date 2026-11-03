@@ -208,7 +208,7 @@ ev 100 preflight.end '"preflight":{"result":"PASS"}'
 watch >/dev/null; expect_eq "a remote.end from before this round is not a WAKE" "$?" "0"
 expect_has "recover says the round has no remote.end" "$(run "$BIN/recover.sh")" "last remote.end: none this round"
 # --wake is the one wait after a remote.end too; ROTATION_WAKE_AFTER is read from neither the conf nor the environment
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAKE_AFTER=1\n' > "$TMP/wake.conf"
+printf 'ROTATION_CONF_KERNEL=2\nROTATION_WAKE_AFTER=1\n' > "$TMP/wake.conf"
 reset
 ev 400 remote.end "\"remote\":{\"kind\":\"close.checks\",\"sha\":\"abc\",\"log\":\"$TMP/seg.log\",\"status\":\"ok\"}"
 watch --wake 1000 >/dev/null; expect_eq "--wake 1000: 400 s after a remote.end is not yet a WAKE" "$?" "0"
@@ -660,7 +660,7 @@ expect_not "alive: no dead? line" "$out" "dead? w9"
 watch >/dev/null; expect_eq "watchdog: an alive worker is no WAKE" "$?" "0"
 # the threshold is the conf's
 tr_file "$TMP/cfg-b" sess-A ag-w9 1500
-printf 'ROTATION_CONF_KERNEL=1\nROTATION_WORKER_STALE=2000\n' > "$TMP/stale.conf"
+printf 'ROTATION_CONF_KERNEL=2\nROTATION_WORKER_STALE=2000\n' > "$TMP/stale.conf"
 CONF="$TMP/stale.conf" watch >/dev/null; expect_eq "ROTATION_WORKER_STALE=2000 in the conf: 1500 s is not dead" "$?" "0"
 ROTATION_WORKER_STALE=60 watch >/dev/null 2>&1; expect_eq "ROTATION_WORKER_STALE from the environment is ignored (conf-only): 1500 s ≥ 1200 default is a WAKE" "$?" "10"
 # no transcript anywhere: unknown, never a WAKE

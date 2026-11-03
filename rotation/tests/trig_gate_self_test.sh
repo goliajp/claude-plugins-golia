@@ -121,7 +121,7 @@ OLD_SHA="$(g rev-list HEAD | tail -1 | cut -c1-9)"
 mk_conf() {  # mk_conf <file> [extra lines...]
   local f=$1; shift
   {
-    echo "ROTATION_CONF_KERNEL=1"
+    echo "ROTATION_CONF_KERNEL=2"
     echo "ROTATION_TRIG1_MIN_COMMITS=12"
     echo "ROTATION_TRIG1_MIN_CLOSED=3"
     echo "ROTATION_TRIG2_MIN_WALL_SEC=1800"
