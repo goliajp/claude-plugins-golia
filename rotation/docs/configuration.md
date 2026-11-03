@@ -8,7 +8,7 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 
 | Key | Required | Default | Meaning |
 |---|---|---|---|
-| `ROTATION_CONF_KERNEL` | yes | — | the kernel major this file was written for (`2`, or `2.0` to record the minor); a major mismatch is exit 2 everywhere, a minor difference a doctor WARN |
+| `ROTATION_CONF_KERNEL` | yes | — | the conf format this file is written in: `1`. A conf in another format is exit 2 everywhere (see below) |
 | `ROTATION_TRIG1_MIN_COMMITS` | yes | — | TRIG-1a: commit floor N. No kernel default on purpose: it is the project's measurement |
 | `ROTATION_TRIG1_MIN_CLOSED` | yes | — | TRIG-1b: shas on `closed:` from this round (template: 3) |
 | `ROTATION_TRIG2_MIN_WALL_SEC` / `_MAX_WALL_SEC` | yes | — | TRIG-2 floor and cap in seconds; past the cap TRIG-1a is waived |
@@ -41,6 +41,8 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_MERGE_FROM` | no | `develop` | lanes: the branch `lane_close.sh` merges into the lane before its trigger |
 | `ROTATION_INBOX_FILE` | no | `.claude/autorun-inbox.md` | the inbox `lane_close.sh` and `lane_merge.sh --returned` write their rows into (created when missing) |
 | `ROTATION_INBOX_INSERT_LINE` | no | 65 | the line those rows land on (past the end of the file: appended) |
+
+`ROTATION_CONF_KERNEL` names the conf format, not a kernel version. From 2.0.0 it is independent of the product version (`hardev self version` prints both: `hardev 2.0.0 (conf format 1)`); the kernel declares the format it reads as `ROTATION_CONF_FORMAT` in `bin/lib.sh`. The format is still `1`: no key has changed meaning, and a key added with a default does not change the format. It rises only when an existing key's meaning changes incompatibly, and then the release notes say what to rewrite. A value written before 2.0.0 with a dot (`1.1`) is still read; only the part before the dot is compared.
 
 ## project.sh
 

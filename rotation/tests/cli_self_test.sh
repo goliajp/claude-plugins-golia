@@ -156,8 +156,8 @@ ok "5 help NOUN" "$("$H" help close | grep -c '^  close ')" "4"
 
 # ── 6. self ─────────────────────────────────────────────────────────────
 pj=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")
-ok "6 self version = plugin.json version" "$("$H" self version)" "$pj"
-ok "6 self version = the kernel's" "$("$H" self version)" "$(sed -n 's/^ROTATION_KERNEL_VERSION="\(.*\)"$/\1/p' "$BIN/lib.sh")"
+ok "6 self version = plugin.json version and conf format 1" "$("$H" self version)" "hardev $pj (conf format 1)"
+ok "6 self version names the kernel's version" "$("$H" self version)" "hardev $(sed -n 's/^ROTATION_KERNEL_VERSION="\(.*\)"$/\1/p' "$BIN/lib.sh") (conf format 1)"
 ok "6 self path" "$("$H" self path)" "$ROOT"
 mp=$(python3 -c 'import json,sys; print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="rotation"][0])' "$ROOT/../.claude-plugin/marketplace.json" 2>/dev/null)
 ok "6 marketplace.json carries the same version" "$mp" "$pj"

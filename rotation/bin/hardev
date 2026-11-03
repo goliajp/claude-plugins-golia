@@ -156,7 +156,9 @@ self_cmd() {
   case "$R_VERB" in
     version)
       [ "${#ARGS[@]}" -eq 0 ] || die "usage: hardev self version"
-      sed -n 's/^ROTATION_KERNEL_VERSION="\(.*\)"$/\1/p' "$BIN/lib.sh" ;;
+      printf 'hardev %s (conf format %s)\n' \
+        "$(sed -n 's/^ROTATION_KERNEL_VERSION="\(.*\)"$/\1/p' "$BIN/lib.sh")" \
+        "$(sed -n 's/^ROTATION_CONF_FORMAT="\(.*\)"$/\1/p' "$BIN/lib.sh")" ;;
     path)
       [ "${#ARGS[@]}" -eq 0 ] || die "usage: hardev self path"
       printf '%s\n' "$PLUGIN_ROOT" ;;

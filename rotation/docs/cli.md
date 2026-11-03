@@ -68,7 +68,7 @@ For every command marked `conf` below, in this order:
 | `stats effect` | `[--tail N]` | `stats.sh --effect` | yes | conf | 0 · 2 |
 | `stats suggest` | | `stats.sh --suggest` | — | conf | 0 · 2 |
 | `hook stop` · `subagent-stop` · `session-start` | (hook input on stdin) | `stop_hook.sh` · `subagent_stop_hook.sh` · `session_start_hook.sh` | — | cwd | 0 |
-| `self version` | | built in: the kernel version in `bin/lib.sh` | — | — | 0 · 2 |
+| `self version` | | built in: `hardev <version> (conf format <n>)`, both from `bin/lib.sh` | — | — | 0 · 2 |
 | `self path` | | built in: the plugin root | — | — | 0 · 2 |
 | `self install` | `[--force]` | built in | — | — | 0 · 1 a different file is there · 2 |
 | `self uninstall` | | built in | — | — | 0 · 1 not this hardev's link · 2 |
@@ -100,4 +100,4 @@ The root is computed from the shim's location in every mode (an exported `ROTATI
 
 The plugin's install directory carries its version; after `claude plugin update rotation` run `self install --force` from the new directory (`hardev self path` names the one the link points to).
 
-From 2.0.0 the plugin version and the kernel version are one number: `hardev self version`, `plugin.json` and `DOCTOR PASS kernel=…` print the same.
+From 2.0.0 the plugin version and the kernel version are one number: `hardev self version`, `plugin.json` and `DOCTOR PASS kernel=…` print the same. `hardev self version` prints `hardev <version> (conf format <n>)`; the conf format is the separate number a `rotation.conf` states as `ROTATION_CONF_KERNEL` ([configuration.md](configuration.md)).
