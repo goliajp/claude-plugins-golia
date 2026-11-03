@@ -6,8 +6,8 @@
 # file, and the change is visible in the rows that follow.
 # `init.sh` copies this file once and never overwrites it.
 
-# the kernel major this file is written for (lib.sh refuses a mismatch; `2.0` also records the minor, doctor warns on drift)
-ROTATION_CONF_KERNEL=2
+# the conf format this file is written in (lib.sh refuses another); not the kernel version, see docs/configuration.md
+ROTATION_CONF_KERNEL=1
 
 # TRIG-1: commits on the first-parent line since the last self rotation, and things named on `closed:`
 ROTATION_TRIG1_MIN_COMMITS=12

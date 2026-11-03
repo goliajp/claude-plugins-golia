@@ -22,6 +22,11 @@
 set -u
 
 ROTATION_KERNEL_VERSION="2.0.0"
+# The rotation.conf format this kernel reads; a conf states it as
+# ROTATION_CONF_KERNEL. Independent of the product version: it rises only
+# when an existing key changes meaning incompatibly, never for a release or
+# for keys added with defaults.
+ROTATION_CONF_FORMAT="1"
 
 # ── Path discovery ──────────────────────────────────────────────────────
 # AUTORUN_DIR = the kernel directory (this file's parent, the plugin's bin/).
@@ -79,7 +84,7 @@ PROJECT_SH="${ROTATION_PROJECT_SH:-$PROJECT_ROTATION_DIR/project.sh}"
 
 # ── rotation.conf ───────────────────────────────────────────────────────
 # The frozen configuration face: thresholds, axes, blacklist additions, the
-# stamp list, the rules table, the kernel major it was written for. Only
+# stamp list, the rules table, the conf format it was written in. Only
 # this file may set the keys below — the environment is cleared for them
 # first, so a value cannot be slipped in from a shell. trigger.sh writes the
 # effective values and the file's sha256 into every rotations.jsonl row.
@@ -114,8 +119,8 @@ autorun_load_conf() {
     export "$key=$val"
   done < "$ROTATION_CONF_FILE"
   ROTATION_CONF_SHA256=$(shasum -a 256 "$ROTATION_CONF_FILE" 2>/dev/null | awk '{print $1}')
-  if [ -n "${ROTATION_CONF_KERNEL:-}" ] && [ "${ROTATION_CONF_KERNEL%%.*}" != "${ROTATION_KERNEL_VERSION%%.*}" ]; then
-    ROTATION_CONF_ERROR="rotation.conf is written for kernel major ${ROTATION_CONF_KERNEL%%.*}, this kernel is $ROTATION_KERNEL_VERSION"
+  if [ -n "${ROTATION_CONF_KERNEL:-}" ] && [ "${ROTATION_CONF_KERNEL%%.*}" != "$ROTATION_CONF_FORMAT" ]; then
+    ROTATION_CONF_ERROR="rotation.conf is written for conf format ${ROTATION_CONF_KERNEL%%.*}, kernel $ROTATION_KERNEL_VERSION reads conf format $ROTATION_CONF_FORMAT"
   fi
 }
 autorun_load_conf

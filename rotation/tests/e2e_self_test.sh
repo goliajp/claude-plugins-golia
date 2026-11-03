@@ -90,7 +90,7 @@ setup_round() {
   cp "$STAMPS/sweep-latest.json" "$STAMPS/stamps.jsonl"
   printf '#name\tpaths\tartifact\tstamp\tminutes\tmode\tsync_paths\tneeds\tshow\tregress\nsweep\tcrates/**\t-\tsweep\t1\tsync\t-\t-\tpass,passTotal\tpass:down\n' > "$R/rules.tsv"
   cat > "$R/rotation.conf" <<EOF
-ROTATION_CONF_KERNEL=2
+ROTATION_CONF_KERNEL=1
 ROTATION_TRIG1_MIN_COMMITS=3
 ROTATION_TRIG1_MIN_CLOSED=1
 ROTATION_TRIG2_MIN_WALL_SEC=1800
