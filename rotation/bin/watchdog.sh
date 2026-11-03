@@ -5,7 +5,7 @@
 # notification (the manager session starts this with run_in_background).
 # It changes nothing: no file, no process, no event.
 #
-# usage: watchdog.sh [--interval 60] [--stale 1800] [--wake 300] [--dirty 600] [--once]
+# usage: watchdog.sh [--all] [--interval 60] [--stale 1800] [--wake 300] [--dirty 600] [--once]
 #
 #   WAKE           (exit 10)  what the last executor.waiting waits for has happened (its remote
 #                             marker is in the log, or every listed worker has an agent.end),
@@ -40,6 +40,10 @@
 #                             protocol runs one at a time, the stale one has to be ended (checked first)
 #
 #   --once  one pass, no start floor: prints the hit, or `OK …` and exits 0
+#   --all   one process watches every lane of the project (the first lane, then each
+#           .claude/rotation-lanes/<lane>/): each pass checks every lane in its own environment, with one start
+#           floor for all; on a hit it prints `== lane <name> ==` and the line for every lane that hit, and exits
+#           with the highest of their codes. With --once every lane's line is printed under its header
 #
 # exit: 10–15 as above · 0 only with --once · 1 the check itself failed · 2 usage
 
@@ -48,7 +52,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 INTERVAL=60; STALE=1800; WAKE=300; DIRTY=600; ONCE=0
-usage() { echo "usage: watchdog.sh [--interval 60] [--stale 1800] [--wake 300] [--dirty 600] [--once]" >&2; exit 2; }
+usage() { echo "usage: watchdog.sh [--all] [--interval 60] [--stale 1800] [--wake 300] [--dirty 600] [--once]" >&2; exit 2; }
+ALL=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --interval|--stale|--wake|--dirty)
@@ -62,9 +67,33 @@ while [ "$#" -gt 0 ]; do
       esac
       shift 2 ;;
     --once) ONCE=1; shift ;;
+    --all) ALL=1; shift ;;
     *) usage ;;
   esac
 done
+
+if [ "$ALL" -eq 1 ]; then
+  . "$SCRIPT_DIR/lane_lib.sh"
+  # one floor for every lane, taken now, handed to each one-pass child (ROTATION_WATCH_FLOOR)
+  ALL_FLOOR=$(date +%s)
+  [ "$ONCE" -eq 1 ] && ALL_FLOOR=0
+  export ROTATION_WATCH_FLOOR="$ALL_FLOOR"
+  while :; do
+    out=$(autorun_run_all "$SCRIPT_DIR/watchdog.sh" --once \
+      --stale "$STALE" --wake "$WAKE" --dirty "$DIRTY")
+    rc=$?
+    if [ "$ONCE" -eq 1 ]; then
+      printf '%s\n' "$out"
+      exit "$rc"
+    fi
+    if [ "$rc" -ne 0 ]; then
+      # only the lanes that hit: a header followed by a line that is not OK
+      printf '%s\n' "$out" | awk '/^== lane / { h = $0; next } !/^OK / { if (h != "") print h; h = ""; print }'
+      exit "$rc"
+    fi
+    sleep "$INTERVAL"
+  done
+fi
 
 export ROTATION_REPO="${ROTATION_REPO:-$PROJECT_DIR}"
 export ROTATION_EVENTS_LOG="$EVENTS_LOG"
@@ -72,7 +101,8 @@ export ROTATION_ROTATIONS_LOG="$ROTATIONS_LOG"
 export ROTATION_MANAGER_ACTIVE="${ROTATION_MANAGER_ACTIVE:-$MANAGER_ACTIVE_FILE}"
 export ROTATION_AGENT_ORIGIN_PATTERN="$AGENT_ORIGIN_PATTERN"
 FLOOR=$(date +%s)
-[ "$ONCE" -eq 1 ] && FLOOR=0
+# --once has no start floor, unless watchdog.sh --all hands its own down
+[ "$ONCE" -eq 1 ] && FLOOR="${ROTATION_WATCH_FLOOR:-0}"
 
 while :; do
   line=$(python3 "$SCRIPT_DIR/recover_lib.py" watch --stale "$STALE" --wake "$WAKE" --dirty "$DIRTY" --floor "$FLOOR")

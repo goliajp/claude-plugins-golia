@@ -15,6 +15,15 @@
 #                      → the lane's), the shared directory is linked, a shim through the links resolves
 #                      the project root to the worktree (the event's head is the worktree's HEAD);
 #                      refused on the main tree
+#   init.sh --from     copies a lane's three files with that lane's name replaced in every spelling that
+#                      names it, prints the count; an unknown source lane is exit 1, --from without --lane exit 2
+#   lanes.sh           one line per lane (first lane first, named), branch / rid / executors; --json an array
+#   --all              doctor / recover / watchdog run every lane under `== lane <name> ==`, exit = the highest
+#   lane_close.sh      in the lane's worktree: merge the base, the hook, the trigger (stubbed), the tag, the inbox
+#                      row, lane.ready; refused off the lane's branch; a blocked trigger tags nothing; a conflict
+#                      exits 3 naming the file
+#   lane_merge.sh      merge.start / merge.end around a --no-ff merge of the tag; a conflict exits 3 and records
+#                      status conflict; --returned records lane.returned and writes the inbox row
 #
 # exit: 0 every case passed · 1 otherwise
 
@@ -30,6 +39,7 @@ ok() { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/     | /'; }
 expect_eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$3] got [$2]"; fi; }
 expect_has() { if printf '%s\n' "$2" | grep -qE -- "$3"; then ok "$1"; else bad "$1 (wanted /$3/)" "$2"; fi; }
+expect_not() { if printf '%s\n' "$2" | grep -qE -- "$3"; then bad "$1 (/$3/ present)" "$2"; else ok "$1"; fi; }
 
 # physical paths throughout: lane_enter.sh derives the main tree from git, which gives the
 # physical path (/private/var vs /var on macOS), and the links must compare equal to it
@@ -165,6 +175,168 @@ printf 'ROTATION_LANE_NAME=substrate\n' >> "$REPO/.claude/rotation/rotation.conf
 (cd "$REPO" && bash .claude/rotation/event.sh harness.note note.kind=named-first >/dev/null 2>&1)
 expect_eq "first lane with ROTATION_LANE_NAME: its event carries the name" "$(grep -c 'named-first.*' "$MEV"):$(grep 'named-first' "$MEV" | grep -c '"lane":"substrate"')" "1:1"
 expect_eq "first lane with ROTATION_LANE_NAME: paths unchanged" "$(cd "$REPO" && bash -c '. .claude/rotation/lib.sh; echo "$STATE_DIR"')" "$REPO/.claude/rotation-state"
+
+# ── K2: init.sh --lane <name> --from <lane> ─────────────────────────────
+cat >> "$LANE/rotation.conf" <<'EOF'
+# lane `b` — rotation-lanes/b, lanes/b, lane-b, lane/b, lane b; not lane/bx nor lanes/b2
+ROTATION_CLOSE_RULES=.claude/rotation-lanes/b/close_rules.tsv
+EOF
+out=$(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$KBIN/init.sh" --lane q --from b 2>&1); rc=$?
+expect_eq "init --from: exit 0" "$rc" 0
+QC="$REPO/.claude/rotation-lanes/q/rotation.conf"
+expect_has "init --from: the replacement count is printed" "$out" 'rotation\.conf copied from lane b — 7 replacement\(s\) b → q'
+expect_has "init --from: every spelling naming the lane is replaced" "$(grep '^# lane' "$QC")" '^# lane `q` — rotation-lanes/q, lanes/q, lane-q, lane/q, lane q; not lane/bx nor lanes/b2$'
+expect_eq "init --from: a path to the lane's rules points at the new lane" "$(grep '^ROTATION_CLOSE_RULES' "$QC" | tail -1)" "ROTATION_CLOSE_RULES=.claude/rotation-lanes/q/close_rules.tsv"
+expect_has "init --from: project.sh comes from lane b (its base branch, renamed)" "$(cat "$REPO/.claude/rotation-lanes/q/project.sh")" 'ROTATION_BASE_BRANCH=lane/q'
+expect_eq "init --from: the source lane is untouched" "$(grep -c 'rotation-lanes/b/close_rules' "$LANE/rotation.conf")" 1
+out=$(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$KBIN/init.sh" --lane r --from nosuch 2>&1); rc=$?
+expect_eq "init --from: an unknown source lane exits 1" "$rc:$([ -d "$REPO/.claude/rotation-lanes/r" ] && echo made || echo none)" "1:none"
+out=$(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$KBIN/init.sh" --from b 2>&1); rc=$?
+expect_eq "init --from without --lane: usage (exit 2)" "$rc" 2
+out=$(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$KBIN/init.sh" --lane s 2>&1); rc=$?
+expect_eq "init --lane without --from: still copies the first lane's conf" "$rc:$(cmp -s "$REPO/.claude/rotation-lanes/s/rotation.conf" "$REPO/.claude/rotation/rotation.conf" && echo same)" "0:same"
+expect_eq "init: the new commands have shims" \
+  "$(for f in lanes.sh lane_close.sh lane_merge.sh onboard_check.sh; do [ -x "$REPO/.claude/rotation-lanes/s/$f" ] && printf 1 || printf 0; done)" 1111
+
+# ── K3: lanes.sh and the --all modes ────────────────────────────────────
+out=$(cd "$REPO" && bash .claude/rotation/lanes.sh 2>&1); rc=$?
+expect_eq "lanes.sh: exit 0, one line per lane, the first lane first under its name" "$rc:$(printf '%s\n' "$out" | awk '{print $1}' | tr '\n' ' ')" "0:substrate b c d q s "
+expect_has "lanes.sh: lane b's branch and rid" "$(printf '%s\n' "$out" | grep '^b ')" 'branch=lane/b rid=r-[0-9a-z-]+ head=[0-9a-f]+ '
+expect_has "lanes.sh: lane c's running executor and its manager marker" "$(printf '%s\n' "$out" | grep '^c ')" 'last=rotation\.start@[0-9T:Z-]+ executors=1:c-01\(ag-c1\) manager=yes$'
+expect_has "lanes.sh: the first lane has no executor" "$(printf '%s\n' "$out" | grep '^substrate ')" 'executors=0 manager=no$'
+js=$(cd "$REPO" && bash .claude/rotation/lanes.sh --json | python3 -c 'import json,sys; a=json.load(sys.stdin); print(len(a), a[0]["value"] == "", a[2]["executors"][0]["id"], a[1]["branch"])')
+expect_eq "lanes.sh --json: an array, the first lane's value empty, executors and branch carried" "$js" "6 True ag-c1 lane/b"
+out=$(cd "$REPO" && bash .claude/rotation/lanes.sh --bogus 2>&1); rc=$?
+expect_eq "lanes.sh: an unknown option is usage (exit 2)" "$rc" 2
+
+out=$(cd "$REPO" && bash .claude/rotation/doctor.sh --all 2>&1); rc=$?
+expect_eq "doctor --all: one header per lane" "$(printf '%s\n' "$out" | grep -c '^== lane ')" 6
+expect_eq "doctor --all: each lane's verdict line follows its header" "$(printf '%s\n' "$out" | grep -cE '^DOCTOR (PASS|FAIL)')" 6
+expect_eq "doctor --all: exit is the worst (these fixtures have no adapter commands: 1)" "$rc" 1
+expect_has "doctor --all: a lane's run is that lane's" "$(printf '%s\n' "$out" | sed -n '/^== lane c ==/,/^== lane d ==/p')" '^PASS lane c '
+out=$(cd "$REPO" && bash .claude/rotation-lanes/b/doctor.sh --all 2>&1)
+expect_eq "doctor --all through a lane's shim: still every lane" "$(printf '%s\n' "$out" | grep -c '^== lane ')" 6
+out=$(cd "$REPO" && bash .claude/rotation/recover.sh --all --no-probe 2>&1); rc=$?
+expect_eq "recover --all: exit 0, one header and one action line per lane" \
+  "$rc:$(printf '%s\n' "$out" | grep -c '^== lane '):$(printf '%s\n' "$out" | grep -cE '^(RESUME|CLEAN|RESPAWN|IDLE)')" "0:6:6"
+out=$(cd "$REPO" && bash .claude/rotation/recover.sh --all --json --no-probe 2>&1)
+expect_eq "recover --all --json: one JSON page per lane" "$(printf '%s\n' "$out" | grep -c '^{')" 6
+worst=0
+for l in "" b c d q s; do
+  (cd "$REPO" && ROTATION_LANE=$l bash .claude/rotation/watchdog.sh --once >/dev/null 2>&1); r=$?
+  [ "$r" -le "$worst" ] || worst=$r
+done
+out=$(cd "$REPO" && bash .claude/rotation/watchdog.sh --all --once 2>&1); rc=$?
+expect_eq "watchdog --all --once: exit is the highest of the lanes' own (here $worst)" "$rc" "$worst"
+expect_eq "watchdog --all --once: every lane's line under its header" "$(printf '%s\n' "$out" | grep -c '^== lane ')" 6
+expect_has "watchdog --all --once: lane d runs two executors" "$(printf '%s\n' "$out" | sed -n '/^== lane d ==/,/^== lane q ==/p')" '^MULTI-EXECUTOR n=2'
+out=$(cd "$REPO" && bash .claude/rotation/watchdog.sh --all --interval 1 2>&1); rc=$?
+expect_eq "watchdog --all: the first pass with a hit exits with it" "$rc" "$worst"
+expect_has "watchdog --all: the hit lane is printed under its header" "$out" '== lane d =='
+expect_not "watchdog --all: lanes without a hit are not printed" "$out" '^OK '
+out=$(cd "$REPO" && bash .claude/rotation/watchdog.sh --once 2>&1); rc=$?
+expect_not "watchdog without --all: no lane headers" "$out" '^== lane '
+
+# ── K4: lane_close.sh and lane_merge.sh ─────────────────────────────────
+# a second project whose kernel is a copy with the trigger stubbed (its gate is TRIG-1..9 against stamps
+# and rows; lane_close only has to call it and act on its exit)
+KP="$TMP/kplug"; mkdir -p "$KP/bin"; cp "$KBIN"/*.sh "$KBIN"/*.py "$KP/bin/"
+cat > "$KP/bin/trigger.sh" <<'EOF'
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/lib.sh"
+[ "${STUB_TRIGGER_RC:-0}" = 0 ] || { echo "TRIG-1 FAIL stub"; exit 1; }
+next=r-2000000000-abcd
+autorun_record_event rotation.end trigger=self "next=$next"
+printf '%s\n' "$next" > "$INTENT_FILE"
+printf '{"rotationId":"%s","trigger":"self","project":"p","commitsInSession":3}\n' "$next" >> "$ROTATIONS_LOG"
+echo "rotation $next triggered (self, stub)"
+EOF
+P="$TMP/proj"; mkdir -p "$P"
+gp() { git -C "$P" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+gp init -q -b develop
+printf '.claude/\n' > "$P/.gitignore"; echo x > "$P/x.txt"; gp add -A; gp commit -q -m "feat: first"
+(cd "$P" && CLAUDE_PLUGIN_ROOT="$KP" bash "$KP/bin/init.sh" >/dev/null 2>&1)
+(cd "$P" && CLAUDE_PLUGIN_ROOT="$KP" bash "$KP/bin/init.sh" --lane p >/dev/null 2>&1)
+PL="$P/.claude/rotation-lanes/p"
+printf 'export ROTATION_BASE_BRANCH=lane/p\n' >> "$PL/project.sh"
+printf 'ROTATION_INBOX_INSERT_LINE=3\nROTATION_LANE_CLOSE_HOOK=touch .claude/hook-ran\n' >> "$PL/rotation.conf"
+printf 'ROTATION_INBOX_INSERT_LINE=3\n' >> "$P/.claude/rotation/rotation.conf"
+printf '# inbox\n\n| date | rule | where |\n|---|---|---|\n| old | row | x |\n' > "$P/.claude/autorun-inbox.md"
+printf 'r-1999999999-0001\n' > "$P/.claude/rotation-state/lanes/p/rotation.current"
+(cd "$P" && bash .claude/rotation-lanes/p/event.sh gate.end 'gate=raw:{"sha":"x","pass":7,"fail":0,"skip":1}' >/dev/null)
+PW="$TMP/pwt"
+gp worktree add -q -b lane/p "$PW" develop
+gw() { git -C "$PW" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+echo p > "$PW/p.txt"; gw add -A; gw commit -q -m "feat: lane work"
+(cd "$PW" && bash "$KP/bin/lane_enter.sh" p >/dev/null 2>&1)
+echo d > "$P/d.txt"; gp add -A; gp commit -q -m "feat: develop moves on"
+
+out=$(cd "$P" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "lane_close off the lane's branch (main tree on develop): exit 1" "$rc" 1
+out=$(cd "$PW" && bash .claude/rotation/lane_close.sh 2>&1); rc=$?
+expect_eq "lane_close through the first lane's shim: usage (exit 2)" "$rc" 2
+out=$(cd "$PW" && STUB_TRIGGER_RC=1 bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "lane_close with the trigger blocked: exit 1, no tag" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "lane_close blocked: the gate's lines are shown" "$out" 'TRIG-1 FAIL stub'
+rm -f "$PW/.claude/hook-ran"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+TAGP=lane/p/r-1999999999-0001
+expect_eq "lane_close: exit 0" "$rc" 0
+expect_has "lane_close: last line" "$(printf '%s\n' "$out" | tail -1)" "^LANE READY $TAGP head=[0-9a-f]+$"
+expect_eq "lane_close: the tag is the closed round's, at the worktree's HEAD" "$(gp rev-parse "$TAGP^{commit}")" "$(gw rev-parse HEAD)"
+expect_eq "lane_close: develop was merged into the lane (two parents, the message)" \
+  "$(gw log -1 --format='%p|%s' "$TAGP" | awk -F'|' '{print split($1, a, " ") "|" $2}')" "2|merge: develop into lane/p"
+expect_eq "lane_close: the hook ran in the worktree" "$([ -e "$PW/.claude/hook-ran" ] && echo yes)" yes
+expect_eq "lane_close: the inbox row at line 3 (the main tree's inbox, through the link)" "$(sed -n 3p "$P/.claude/autorun-inbox.md")" \
+  "| $(date +%F) | $TAGP ready · 3 commit · gate 7/0/1 | .claude/rotation-lanes/p/handoff.md |"
+expect_eq "lane_close: the rest of the inbox is kept" "$(sed -n '1p;4p;6p' "$P/.claude/autorun-inbox.md" | tr '\n' '~')" "# inbox~| date | rule | where |~| old | row | x |~"
+PEV="$P/.claude/rotation-state/lanes/p/events.jsonl"
+ready=$(grep '"kind":"lane.ready"' "$PEV" | python3 -c 'import json,sys; e=json.loads(sys.stdin.readline()); r=e["ready"]; print(e["tag"], e["lane"], r["rid"], r["commits"], r["gate"]["pass"], r["gate"]["fail"], r["gate"]["skip"], r["mergedFrom"], r["inboxLine"], r["handoff"], r["head"] == e["head"])')
+expect_eq "lane_close: lane.ready carries tag, rid, commits, gate, base, inbox line, handoff" "$ready" \
+  "$TAGP p r-1999999999-0001 3 7 0 1 develop 3 .claude/rotation-lanes/p/handoff.md True"
+
+out=$(cd "$P" && bash .claude/rotation/lane_merge.sh "$TAGP" 2>&1); rc=$?
+expect_eq "lane_merge: exit 0" "$rc" 0
+MEVP="$P/.claude/rotation-state/events.jsonl"
+expect_eq "lane_merge: a --no-ff merge commit on develop with the message" \
+  "$(gp log -1 --format='%p|%s' | awk -F'|' '{print split($1, a, " ") "|" $2}')" "2|merge: $TAGP into develop"
+chain=$(python3 -c '
+import json, sys
+ev = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+s = [e for e in ev if e["kind"] == "lane.merge.start"][-1]; e = [e for e in ev if e["kind"] == "lane.merge.end"][-1]
+print(s["tag"] == e["tag"] == sys.argv[2], s["merge"]["baseHead"] == e["merge"]["baseHead"], e["merge"]["status"], e["merge"]["commit"] == sys.argv[3], s["merge"]["tagHead"] == sys.argv[4])' \
+  "$MEVP" "$TAGP" "$(gp rev-parse --short HEAD)" "$(gp rev-parse --short "$TAGP^{commit}")")
+expect_eq "lane_merge: merge.start / merge.end share the tag and base head, end has the merge commit" "$chain" "True True ok True True"
+out=$(cd "$P" && bash .claude/rotation/lane_merge.sh lane/p/r-nosuch 2>&1); rc=$?
+expect_eq "lane_merge: no such tag is exit 1" "$rc" 1
+out=$(cd "$P" && bash .claude/rotation/lane_merge.sh notatag 2>&1); rc=$?
+expect_eq "lane_merge: not a lane tag is usage (exit 2)" "$rc" 2
+
+# conflicts: the lane and develop change the same line
+gw merge -q --ff-only develop 2>/dev/null || gw merge -q --no-edit develop
+echo lane > "$PW/x.txt"; gw commit -q -am "fix: lane side"
+echo dev > "$P/x.txt"; gp commit -q -am "fix: develop side"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "lane_close with a conflicting base: exit 3" "$rc" 3
+expect_has "lane_close conflict: the file is named" "$out" '^  x\.txt$'
+gw merge --abort
+gp tag lane/p/r-conflict-0001 lane/p
+out=$(cd "$P" && bash .claude/rotation/lane_merge.sh lane/p/r-conflict-0001 2>&1); rc=$?
+expect_eq "lane_merge with a conflict: exit 3" "$rc" 3
+expect_eq "lane_merge conflict: merge.end records the conflict, no commit" \
+  "$(grep '"kind":"lane.merge.end"' "$MEVP" | tail -1 | python3 -c 'import json,sys; e=json.loads(sys.stdin.readline()); print(e["tag"], e["merge"]["status"], e["merge"]["commit"])')" "lane/p/r-conflict-0001 conflict None"
+gp merge --abort
+
+REV=$(gp rev-parse --short HEAD)
+out=$(cd "$P" && bash .claude/rotation/lane_merge.sh --returned "$TAGP" "build regressed" "$REV" 2>&1); rc=$?
+expect_eq "lane_merge --returned: exit 0" "$rc" 0
+expect_eq "lane_merge --returned: lane.returned carries tag, reason, revert" \
+  "$(grep '"kind":"lane.returned"' "$MEVP" | python3 -c 'import json,sys; e=json.loads(sys.stdin.readline()); print(e["tag"], "|", e["returned"]["reason"], "|", e["returned"]["revert"])')" "$TAGP | build regressed | $REV"
+expect_eq "lane_merge --returned: the inbox row at line 3" "$(sed -n 3p "$P/.claude/autorun-inbox.md")" \
+  "| $(date +%F) | $TAGP returned · build regressed · revert $REV | .claude/rotation-lanes/p/handoff.md |"
+out=$(cd "$P" && bash .claude/rotation/lane_merge.sh --returned "$TAGP" "x" deadbeef0 2>&1); rc=$?
+expect_eq "lane_merge --returned: an unknown revert commit is exit 1" "$rc" 1
 
 echo "lanes_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
