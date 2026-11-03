@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+#
+# hardev — one command for the rotation kernel: `hardev <noun> [<verb>] [args…]`.
+#
+# Every noun + verb is a row of commands.tsv beside this file, and is exec'd to the kernel script the
+# row names, with the row's fixed arguments first and the caller's after them; the script's exit code is
+# hardev's. `hardev help` prints the table.
+#
+# Global options, accepted anywhere before a `--`:
+#   --lane NAME      the lane (exports ROTATION_LANE; for init and onboard check: passed as --lane NAME)
+#   --project DIR    the project root (exports ROTATION_PROJECT_DIR); without it: an exported
+#                    ROTATION_PROJECT_DIR, else the nearest directory at or above the working directory
+#                    holding .claude/rotation/rotation.conf, else — inside a git worktree — the main
+#                    worktree when it holds one; else nothing is exported and the script finds its own root
+#   --json           passed through to the scripts that take it; refused (exit 2) by the others
+# After `--` every argument goes to the script untouched (the shims `init.sh --shims hardev` writes use it,
+# so an old spelling keeps its exact meaning).
+#
+# HARDEV_DRY_RUN=1 prints what would be exec'd (one `hardev-dry-run:` line) and exits 0.
+#
+# exit: the script's exit code · 2 usage (unknown noun or verb, --json where the script has none)
+
+set -u
+
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in /*) self=$link ;; *) self="$(dirname "$self")/$link" ;; esac
+done
+BIN="$(cd "$(dirname "$self")" && pwd)"
+PLUGIN_ROOT="$(cd "$BIN/.." && pwd)"
+TABLE="$BIN/commands.tsv"
+
+die() { echo "hardev: $*" >&2; exit 2; }
+
+usage() {
+  echo "usage: hardev <noun> [<verb>] [args] [--lane NAME] [--project DIR] [--json]   (hardev help)" >&2
+  exit 2
+}
+
+# the rows of the table, without comments: noun verb script args json lane root legacy usage summary
+rows() { grep -v '^#' "$TABLE" | grep -v '^$'; }
+
+print_help() {
+  local only=${1:-}
+  rows | awk -F'\t' -v only="$only" '
+    only != "" && $1 != only { next }
+    {
+      cmd = $1 ($2 == "-" ? "" : " " $2)
+      if ($9 != "") cmd = cmd " " $9
+      if ($5 == "yes") cmd = cmd " [--json]"
+      if (length(cmd) > 56) printf "  %s\n  %-56s  %s\n", cmd, "", $10
+      else printf "  %-56s  %s\n", cmd, $10
+    }'
+}
+
+LANE_OPT=""
+LANE_SET=0
+PROJECT_OPT=""
+JSON=0
+POS=()
+RAW=()
+RAW_SET=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --) shift; RAW=("$@"); RAW_SET=1; break ;;
+    --lane) [ "$#" -ge 2 ] || usage; LANE_OPT=$2; LANE_SET=1; shift 2 ;;
+    --lane=*) LANE_OPT=${1#--lane=}; LANE_SET=1; shift ;;
+    --project) [ "$#" -ge 2 ] || usage; PROJECT_OPT=$2; shift 2 ;;
+    --project=*) PROJECT_OPT=${1#--project=}; shift ;;
+    --json) JSON=1; shift ;;
+    *) POS+=("$1"); shift ;;
+  esac
+done
+if [ "$LANE_SET" -eq 1 ]; then
+  case "$LANE_OPT" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) die "--lane must match [a-z0-9-]+, got '$LANE_OPT'" ;; esac
+fi
+
+[ "${#POS[@]}" -ge 1 ] || { [ "$RAW_SET" -eq 1 ] && usage; print_help >&2; usage; }
+NOUN=${POS[0]}
+POS=("${POS[@]:1}")
+case "$NOUN" in help|-h|--help) print_help "${POS[0]:-}"; exit 0 ;; esac
+rows | awk -F'\t' -v n="$NOUN" '$1 == n { f = 1 } END { exit !f }' || { echo "hardev: unknown command '$NOUN'" >&2; print_help >&2; exit 2; }
+
+# the verb: the next word, from before `--` or (for a shim's call) the first word after it; a word that is
+# not a verb of the noun falls to the noun's `-` row when it has one (an argument of the script), and is an
+# error when it came before `--` and the noun has no `-` row
+lookup() { rows | awk -F'\t' -v n="$NOUN" -v v="$1" '$1 == n && $2 == v { print; exit }'; }
+ROW=""
+if [ "${#POS[@]}" -ge 1 ]; then
+  next=${POS[0]}
+  if [ "$next" = help ]; then print_help "$NOUN"; exit 0; fi
+  case "$next" in -*) ;; *) ROW=$(lookup "$next"); [ -z "$ROW" ] || POS=("${POS[@]:1}") ;; esac
+  if [ -z "$ROW" ]; then
+    # a noun with verbs takes no bare word before `--` other than one of them
+    case "$next" in
+      -*) ROW=$(lookup -) ;;
+      *) rows | awk -F'\t' -v n="$NOUN" '$1 == n && $2 != "-" { f = 1 } END { exit !f }' || ROW=$(lookup -) ;;
+    esac
+    if [ -z "$ROW" ]; then
+      echo "hardev: unknown verb '$next' for '$NOUN'" >&2; print_help "$NOUN" >&2; exit 2
+    fi
+  fi
+elif [ "$RAW_SET" -eq 1 ] && [ "${#RAW[@]}" -ge 1 ]; then
+  case "${RAW[0]}" in -*) ;; *) ROW=$(lookup "${RAW[0]}"); [ -z "$ROW" ] || RAW=("${RAW[@]:1}") ;; esac
+  [ -n "$ROW" ] || ROW=$(lookup -)
+  [ -n "$ROW" ] || { echo "hardev: unknown verb '${RAW[0]}' for '$NOUN'" >&2; print_help "$NOUN" >&2; exit 2; }
+else
+  ROW=$(lookup -)
+  [ -n "$ROW" ] || { echo "hardev: '$NOUN' needs a verb" >&2; print_help "$NOUN" >&2; exit 2; }
+fi
+IFS=$'\t' read -r R_NOUN R_VERB R_SCRIPT R_ARGS R_JSON R_LANE R_ROOT _ _ _ <<< "$ROW"
+LABEL="$R_NOUN${R_VERB:+ $R_VERB}"
+[ "$R_VERB" != "-" ] || LABEL=$R_NOUN
+
+ARGS=()
+[ "$R_ARGS" = "-" ] || read -r -a ARGS <<< "$R_ARGS"
+if [ "$LANE_SET" -eq 1 ] && [ "$R_LANE" = arg ]; then
+  ARGS+=(--lane "$LANE_OPT")
+fi
+ARGS+=(${POS[@]+"${POS[@]}"} ${RAW[@]+"${RAW[@]}"})
+if [ "$JSON" -eq 1 ]; then
+  [ "$R_JSON" = yes ] || die "$LABEL has no --json yet"
+  ARGS+=(--json)
+fi
+[ "$LANE_SET" -eq 0 ] || [ "$R_LANE" = arg ] || export ROTATION_LANE="$LANE_OPT"
+
+# the project root
+if [ -n "$PROJECT_OPT" ]; then
+  PROJECT_OPT=$(cd "$PROJECT_OPT" 2>/dev/null && pwd) || die "--project: no directory '$PROJECT_OPT'"
+fi
+find_root() {
+  local d
+  d=$(pwd)
+  while :; do
+    [ -f "$d/.claude/rotation/rotation.conf" ] && { printf '%s\n' "$d"; return 0; }
+    [ "$d" = / ] && break
+    d=$(dirname "$d")
+  done
+  # a git worktree outside the project (a lane's before lane enter, a tool's): the main worktree
+  d=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  [ -n "$d" ] && [ -f "$d/.claude/rotation/rotation.conf" ] && { printf '%s\n' "$d"; return 0; }
+  return 1
+}
+if [ "$R_ROOT" = conf ]; then
+  if [ -n "$PROJECT_OPT" ]; then
+    export ROTATION_PROJECT_DIR="$PROJECT_OPT"
+  elif [ -z "${ROTATION_PROJECT_DIR:-}" ]; then
+    root=$(find_root) && export ROTATION_PROJECT_DIR="$root"
+  fi
+elif [ -n "$PROJECT_OPT" ]; then
+  cd "$PROJECT_OPT" || die "--project: cannot enter '$PROJECT_OPT'"
+fi
+
+self_cmd() {
+  case "$R_VERB" in
+    version)
+      [ "${#ARGS[@]}" -eq 0 ] || die "usage: hardev self version"
+      sed -n 's/^ROTATION_KERNEL_VERSION="\(.*\)"$/\1/p' "$BIN/lib.sh" ;;
+    path)
+      [ "${#ARGS[@]}" -eq 0 ] || die "usage: hardev self path"
+      printf '%s\n' "$PLUGIN_ROOT" ;;
+    install)
+      local force=0 dest="$HOME/.local/bin/hardev" have
+      case "${#ARGS[@]}:${ARGS[0]:-}" in 0:) ;; 1:--force) force=1 ;; *) die "usage: hardev self install [--force]" ;; esac
+      if [ -L "$dest" ] || [ -e "$dest" ]; then
+        have=$(readlink "$dest" 2>/dev/null || true)
+        if [ "$have" = "$BIN/hardev" ]; then
+          echo "hardev: $dest already links to $BIN/hardev"
+        elif [ "$force" -eq 0 ]; then
+          echo "hardev: $dest exists (${have:-not a link}); left alone (--force replaces it)" >&2
+          exit 1
+        else
+          rm -f "$dest"
+        fi
+      fi
+      if [ ! -L "$dest" ]; then
+        mkdir -p "$(dirname "$dest")"
+        ln -s "$BIN/hardev" "$dest"
+        echo "hardev: $dest → $BIN/hardev"
+      fi
+      case ":$PATH:" in
+        *":$HOME/.local/bin:"*) ;;
+        *) echo "hardev: $HOME/.local/bin is not on PATH; add it in your shell's rc file to call hardev by name" ;;
+      esac ;;
+    uninstall)
+      [ "${#ARGS[@]}" -eq 0 ] || die "usage: hardev self uninstall"
+      local dest="$HOME/.local/bin/hardev"
+      if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$BIN/hardev" ]; then
+        rm -f "$dest"; echo "hardev: removed $dest"
+      elif [ -L "$dest" ] || [ -e "$dest" ]; then
+        echo "hardev: $dest is not this hardev's link; left alone" >&2; exit 1
+      else
+        echo "hardev: no $dest"
+      fi ;;
+  esac
+}
+
+if [ "${HARDEV_DRY_RUN:-}" = 1 ]; then
+  if [ "$R_SCRIPT" = "-" ]; then
+    target="(built-in) $LABEL"
+  else
+    target="$BIN/$R_SCRIPT"
+  fi
+  printf 'hardev-dry-run: cwd=%s ROTATION_PROJECT_DIR=%s ROTATION_LANE=%s exec %s' \
+    "$(pwd)" "${ROTATION_PROJECT_DIR:--}" "${ROTATION_LANE:--}" "$target"
+  [ "${#ARGS[@]}" -eq 0 ] || printf ' %q' "${ARGS[@]}"
+  printf '\n'
+  exit 0
+fi
+
+if [ "$R_SCRIPT" = "-" ]; then
+  self_cmd
+  exit 0
+fi
+exec "$BIN/$R_SCRIPT" ${ARGS[@]+"${ARGS[@]}"}

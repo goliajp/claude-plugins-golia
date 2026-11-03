@@ -1,0 +1,58 @@
+# hardev command table: one row per noun + verb. Read by bin/hardev (dispatch, help) and by init.sh --shims hardev.
+# Columns, tab-separated:
+#   noun verb   `-` = the noun alone (also the row taken when the next word is an option or absent)
+#   script      the kernel script exec'd; `-` = built into bin/hardev
+#   args        fixed arguments put before the caller's; `-` = none
+#   json        yes = the script takes --json (passed through); no = --json is refused (exit 2)
+#   lane        env = --lane exports ROTATION_LANE; arg = --lane NAME is passed to the script as arguments
+#   root        conf = find the project root and export ROTATION_PROJECT_DIR; cwd = the script finds its own
+#               root from the working directory (--project changes into DIR first)
+#   legacy      the .claude/rotation/<script> name an `init.sh --shims hardev` shim maps to this row; `-` = none
+#   usage       the arguments after noun and verb
+#   summary
+init	-	init.sh	-	no	arg	cwd	-	[--force] [--shims hardev|legacy|none] [--from LANE]	wire the project (with --lane: a lane): conf, state, shims
+onboard	check	onboard_check.sh	-	no	arg	conf	onboard_check.sh		the eight onboarding steps, PASS / WARN / FAIL each, last line ONBOARD PASS|FAIL
+doctor	-	doctor.sh	-	no	env	conf	doctor.sh	[--all]	the wiring check, last line DOCTOR PASS|FAIL
+status	-	lanes.sh	-	yes	env	conf	-		every lane on one line (same as lane list)
+lane	list	lanes.sh	-	yes	env	conf	lanes.sh		every lane on one line
+lane	enter	lane_enter.sh	-	no	env	cwd	-	NAME [--share DIR]...	inside a lane's worktree: link the main tree's .claude/
+lane	close	lane_close.sh	-	no	env	conf	lane_close.sh		close the lane's round: merge the base, hook, trigger, tag, inbox row, lane.ready
+lane	merge	lane_merge.sh	-	no	env	conf	lane_merge.sh	TAG | --returned TAG REASON [REVERT]	merge a lane's tag (or hand it back)
+lane	return	lane_merge.sh	--returned	no	env	conf	-	TAG REASON [REVERT]	hand a lane's tag back (lane.returned)
+event	add	event.sh	-	no	env	conf	event.sh	KIND [key=value]...	append one event to events.jsonl
+agent	start	agent_log.sh	start	no	env	conf	agent_log.sh	NAME ROLE MODEL [TASK] [REPORT]	record an agent's start
+agent	end	agent_log.sh	end	no	env	conf	-	NAME ROLE MODEL [TASK] [REPORT]	record an agent's end
+manager	start	manager_log.sh	start	no	env	conf	manager_log.sh		manager.start
+manager	spawn	manager_log.sh	spawn	no	env	conf	-	AGENT_ID [NAME]	manager.spawn
+manager	resume	manager_log.sh	resume	no	env	conf	-	AGENT_ID quota|restart|wake [NAME]	manager.resume
+manager	verify	manager_log.sh	verify	no	env	conf	-	N=pass|fail...	manager.verify
+manager	stop	manager_log.sh	stop	no	env	conf	-	[REASON]	manager.stop
+remote	run	remote_run.sh	-	no	env	conf	remote_run.sh	HOST COMMAND FIELD...	run a job on a runner, its pid registered in remote.start
+run	preflight	adapter_run.sh	preflight	no	env	conf	-	[ARGS]...	the project's pre-flight, held to its contract
+run	gate	adapter_run.sh	gate	no	env	conf	adapter_run.sh	SHA [ARGS]...	the project's gate, held to its contract
+run	close-segment	adapter_run.sh	close-segment	no	env	conf	-	HEAD SEGMENT [ARGS]...	one close segment, held to its contract
+run	bench	adapter_run.sh	bench	no	env	conf	-	SHA [SEGMENTS] [ARGS]...	the project's bench, held to its contract
+close	plan	close_plan.sh	-	no	env	conf	close_plan.sh	[PREV [HEAD]] [--rid RID] [--explain] [--force]	plan the close: run or carry per check, the verdict
+close	fill	close_verdict_fill.sh	-	no	env	conf	close_verdict_fill.sh	RID	fill the verdict's results from the stamps
+close	carry	carry_stamp.sh	-	no	env	conf	carry_stamp.sh	X HEAD REASON	carry a stamp to HEAD
+close	report	report_save.sh	-	no	env	conf	report_save.sh	RID FILE	save the round's report
+trigger	-	trigger.sh	-	no	env	conf	-		the same as trigger manual
+trigger	self	trigger.sh	self	no	env	conf	trigger.sh		the executor's trigger, gated by TRIG-1..n
+trigger	manual	trigger.sh	manual	no	env	conf	-		the operator's trigger (needs a terminal; never run by a model)
+trigger	gate	trig_gate.sh	-	no	env	conf	trig_gate.sh		the trigger gate alone, nothing recorded
+trigger	check	check.sh	-	no	env	conf	check.sh	[RID]	the turn-end gate INV-1..5
+reap	-	kill_stray_shells.sh	-	no	env	conf	kill_stray_shells.sh		end the round's registered processes
+watch	-	watchdog.sh	-	no	env	conf	watchdog.sh	[--all] [--interval S] [--stale S] [--wake S] [--dirty S] [--once]	watch a running round, exit with the reason
+recover	-	recover.sh	-	yes	env	conf	recover.sh	[--all] [--no-probe]	the recovery page, last line the action
+log	-	log.sh	-	yes	env	conf	log.sh	[--tail N]	rotations.jsonl as a table
+stats	-	stats.sh	-	no	env	conf	stats.sh	[--tail N] [-- --project NAME]	readings over the last rounds
+stats	effect	stats.sh	--effect	yes	env	conf	-	[--tail N]	the effect readings
+stats	suggest	stats.sh	--suggest	no	env	conf	-		proposed thresholds
+hook	stop	stop_hook.sh	-	no	env	cwd	-		the Stop hook (hooks.json only)
+hook	subagent-stop	subagent_stop_hook.sh	-	no	env	cwd	-		the SubagentStop hook (hooks.json only)
+hook	session-start	session_start_hook.sh	-	no	env	cwd	-		the SessionStart hook (hooks.json only)
+self	version	-	-	no	env	cwd	-		the hardev version (= the kernel version)
+self	path	-	-	no	env	cwd	-		the plugin root
+self	install	-	-	no	env	cwd	-	[--force]	link bin/hardev to ~/.local/bin/hardev
+self	uninstall	-	-	no	env	cwd	-		remove that link
+help	-	-	-	no	env	cwd	-	[NOUN]	this table
