@@ -37,7 +37,16 @@
 # `lane/<from>`, `lane \`<from>\``, `lane <from>` (the name followed by
 # anything but a letter, digit or dash). Each copy prints its replacement count.
 #
-# usage: init.sh [--force] | init.sh --lane <name> [--from <lane>] [--force]
+# `--shims` picks what the shims are:
+#   legacy  (default) each shim execs the kernel script named in kernel.path, as above
+#   hardev  each shim execs `hardev --project <root> <noun> [<verb>] -- "$@"` (a lane's shim exports
+#           ROTATION_LANE first, as the legacy one does, rather than passing --lane), the noun and
+#           verb read from bin/commands.tsv (the row whose legacy column names the script), so the old
+#           spelling `.claude/rotation/<script> …` keeps working through the CLI; hardev is the one in
+#           kernel.path, else the one on PATH
+#   none    no shims and no lib.sh shim (kernel.path is still written)
+#
+# usage: init.sh [--force] [--shims hardev|legacy|none] | init.sh --lane <name> [--from <lane>] [--force] [--shims …]
 # exit: 0 written · 1 not inside a git work tree / main lane not wired / no lane <from> · 2 usage
 
 set -u
@@ -47,16 +56,19 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FORCE=0
 LANE=""
 FROM=""
-usage() { echo "usage: init.sh [--force] | init.sh --lane <name> [--from <lane>] [--force]" >&2; exit 2; }
+SHIM_MODE=legacy
+usage() { echo "usage: init.sh [--force] [--shims hardev|legacy|none] | init.sh --lane <name> [--from <lane>] [--force] [--shims hardev|legacy|none]" >&2; exit 2; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
     --lane) [ "$#" -ge 2 ] || usage; LANE=$2; shift 2 ;;
     --from) [ "$#" -ge 2 ] || usage; FROM=$2; shift 2 ;;
+    --shims) [ "$#" -ge 2 ] || usage; SHIM_MODE=$2; shift 2 ;;
     *) usage ;;
   esac
 done
 [ -z "$FROM" ] || [ -n "$LANE" ] || usage
+case "$SHIM_MODE" in hardev|legacy|none) ;; *) usage ;; esac
 case "$FROM" in *[!a-z0-9-]*) echo "init: --from lane must match [a-z0-9-]+, got '$FROM'" >&2; exit 2 ;; esac
 case "$LANE" in ''|[a-z0-9-]*) ;; esac
 case "$LANE" in *[!a-z0-9-]*) echo "init: lane must match [a-z0-9-]+, got '$LANE'" >&2; exit 2 ;; esac
@@ -100,10 +112,27 @@ else
   echo "init: lane $LANE reads the main lane's kernel.path ($(cat "$MAIN_DEST/kernel.path"))"
 fi
 
+# the hardev spelling of a script: the noun of its legacy row, and the verb unless the row passes the verb
+# on as the script's first argument (then the caller's first argument is the verb, as it was for the script)
+hardev_spelling() {
+  awk -F'\t' -v s="$1" '!/^#/ && $8 == s {
+    split($4, a, " ")
+    print $1 (($2 == "-" || a[1] == $2) ? "" : " " $2); found = 1; exit
+  } END { exit !found }' "$SCRIPT_DIR/commands.tsv"
+}
+
 written=0
 for s in $SHIMS; do
+  [ "$SHIM_MODE" != none ] || break
   if [ -e "$DEST/$s" ] && [ "$FORCE" -eq 0 ] && ! grep -q 'kernel.path' "$DEST/$s" 2>/dev/null; then
     echo "init: $DEST/$s exists and is not a shim; left alone (--force replaces it)"
+    continue
+  fi
+  if [ "$SHIM_MODE" = hardev ]; then
+    spelling=$(hardev_spelling "$s") || { echo "init: $s has no row in $SCRIPT_DIR/commands.tsv" >&2; exit 1; }
+    printf '#!/usr/bin/env bash\n# the project root is where this shim lives, not the caller'"'"'s git top level\n# (a worker'"'"'s worktree inside the project is a different top level)\nd="$(cd "$(dirname "$0")" && pwd)"\n: "${ROTATION_PROJECT_DIR:=$(cd "$d/%s" && pwd)}"\n'"$LANE_EXPORT"'h="$(cat "%s" 2>/dev/null)/bin/hardev"\n[ -x "$h" ] || h=hardev\nexec "$h" --project "$ROTATION_PROJECT_DIR" %s -- "$@"\n' "$ROOT_UP" "$KPATH" "$spelling" > "$DEST/$s"
+    chmod +x "$DEST/$s"
+    written=$((written + 1))
     continue
   fi
   printf '#!/usr/bin/env bash\n# the project root is where this shim lives, not the caller'"'"'s git top level\n# (a worker'"'"'s worktree inside the project is a different top level)\nd="$(cd "$(dirname "$0")" && pwd)"\n: "${ROTATION_PROJECT_DIR:=$(cd "$d/%s" && pwd)}"\nexport ROTATION_PROJECT_DIR\n'"$LANE_EXPORT"'exec "$(cat "%s")/bin/%s" "$@"\n' "$ROOT_UP" "$KPATH" "$s" > "$DEST/$s"
@@ -111,13 +140,15 @@ for s in $SHIMS; do
   written=$((written + 1))
 done
 # lib.sh is sourced, not executed: the shim sources the kernel's copy
-if [ -e "$DEST/lib.sh" ] && [ "$FORCE" -eq 0 ] && ! grep -q 'kernel.path' "$DEST/lib.sh" 2>/dev/null; then
+if [ "$SHIM_MODE" = none ]; then
+  :
+elif [ -e "$DEST/lib.sh" ] && [ "$FORCE" -eq 0 ] && ! grep -q 'kernel.path' "$DEST/lib.sh" 2>/dev/null; then
   echo "init: $DEST/lib.sh exists and is not a shim; left alone (--force replaces it)"
 else
   printf '_rotation_shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n: "${ROTATION_PROJECT_DIR:=$(cd "$_rotation_shim_dir/%s" && pwd)}"\nexport ROTATION_PROJECT_DIR\n'"$LANE_EXPORT"'. "$(cat "%s")/bin/lib.sh"\n' "$ROOT_UP" "${KPATH//\$d/\$_rotation_shim_dir}" > "$DEST/lib.sh"
   written=$((written + 1))
 fi
-echo "init: $written shims in $DEST"
+if [ "$SHIM_MODE" = legacy ]; then echo "init: $written shims in $DEST"; else echo "init: $written shims ($SHIM_MODE) in $DEST"; fi
 
 for t in project.sh rotation.conf close_rules.tsv; do
   if [ -e "$DEST/$t" ]; then

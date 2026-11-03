@@ -12,8 +12,10 @@ Two parts. Part 1 wires the kernel (mechanical). Part 2 walks the project throug
 Run the kernel's init script from the project root and show its output verbatim:
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/bin/init.sh" $ARGUMENTS
+"${CLAUDE_PLUGIN_ROOT}/bin/hardev" init $ARGUMENTS
 ```
+
+The commands below are spelled `hardev …`. When `hardev` is not on the PATH yet, run `"${CLAUDE_PLUGIN_ROOT}/bin/hardev" self install` once, or write `"${CLAUDE_PLUGIN_ROOT}/bin/hardev"` in its place. The older spelling `bash .claude/rotation/<script>` still works in 2.x (docs/cli.md lists the mapping).
 
 If it says it is not inside a git work tree, stop and tell the user: the kernel keeps its project files under the repository's `.claude/`, which the project keeps out of git.
 
@@ -26,7 +28,7 @@ With `$ARGUMENTS` = `--lane <name> [--from <lane>]` the same applies to that lan
 Run the checker after every step and show the step's line:
 
 ```
-bash .claude/rotation/onboard_check.sh            # a lane: bash .claude/rotation/onboard_check.sh --lane <name>
+hardev onboard check            # a lane: hardev onboard check --lane <name>
 ```
 
 It prints `PASS|WARN|FAIL step.<n> <detail>` for all eight steps and ends with `ONBOARD PASS` or `ONBOARD FAIL`. Work top down: the first step that is not PASS (or, for step 6, WARN) is the one to do now. Write the files **with the user**: ask, propose a draft, let them correct it. Never invent a project's direction, versions or acceptance commands. The examples below are for a made-up project — a firmware controller for an electric kettle — to show the shape only.
@@ -102,7 +104,7 @@ The file paths are the defaults; a project that keeps them elsewhere sets `ROTAT
 
 ### Step 8 — lanes (only when the project runs more than one)
 
-- **Do**: when `.claude/rotation-lanes/` exists (or for `--lane`), one section per lane — headed by the lane's name — saying its **work line** (what it works on), its **independence** (why its commits do not collide with the other lanes': the directories or crates it owns), its **verification machine** (where its gate runs) and its **merge protocol** (who merges its tags, when, what happens on a regression). The first lane needs a section too once `ROTATION_LANE_NAME` names it. A lane that is like an existing one is wired with `init.sh --lane <name> --from <lane>`; the docs are `docs/lanes.md`.
+- **Do**: when `.claude/rotation-lanes/` exists (or for `--lane`), one section per lane — headed by the lane's name — saying its **work line** (what it works on), its **independence** (why its commits do not collide with the other lanes': the directories or crates it owns), its **verification machine** (where its gate runs) and its **merge protocol** (who merges its tags, when, what happens on a regression). The first lane needs a section too once `ROTATION_LANE_NAME` names it. A lane that is like an existing one is wired with `hardev init --lane <name> --from <lane>`; the docs are `docs/lanes.md`.
 - **Why**: two executors on one repository are safe only while their work does not overlap and their results meet in one known place.
 - **Check**: `ROTATION_LANES_DOC` (default: the plan file) has, for every lane, a heading containing its name whose section mentions 工作线 / work line, 独立 / independence, 验证 / verification and 汇合 / 合入 / merge.
 - **Example**:
@@ -114,4 +116,4 @@ The file paths are the defaults; a project that keeps them elsewhere sets `ROTAT
 
 ## Finish
 
-`bash .claude/rotation/onboard_check.sh` ends with `ONBOARD PASS`, then `bash .claude/rotation/doctor.sh` ends with `DOCTOR PASS kernel=… conf=…` (its `plan.*` rows re-check steps 3, 5 and 7 before every round). Show both last lines. Every `FAIL` names what to fix.
+`hardev onboard check` ends with `ONBOARD PASS`, then `hardev doctor` ends with `DOCTOR PASS kernel=… conf=…` (its `plan.*` rows re-check steps 3, 5 and 7 before every round). Show both last lines. Every `FAIL` names what to fix.
