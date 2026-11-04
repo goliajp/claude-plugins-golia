@@ -65,6 +65,7 @@ Sourced by the kernel with `PROJECT_DIR` set to the git top level; every value i
 | `ROTATION_REMOTE_PROBE_CMD` | no | output shown verbatim on the recovery page (what runs on the runner) |
 | `ROTATION_REMOTE_GREP_CMD` | no | `<cmd> <log> <marker> [host]`: exit 0 marker seen in the remote log · 1 not · other unknown. Not called for jobs recorded without a host |
 | `ROTATION_REMOTE_COLLECT_CMD` | no | `<cmd> <kind> <sha> <log> <host> <rid>`: prints the commands that collect a finished job's results, one per line |
+| `ROTATION_CASESET_CMD` | no | `<cmd> <tool> <sha>`: prints the cases the stamp of `<tool>` at `<sha>` ran, in the `caseFile` line format, exit 0; read by `downSameSet` for a stamp that names no case list (stamps written before the check recorded one). The verdict names it as the list's source |
 | `ROTATION_BASE_BRANCH` | no | the branch worktrees are measured against (default: the main tree's current branch) |
 | `ROTATION_PROJECT_NAME` | no | the `project` field of each row (default: the checkout's directory name) |
 | `ROTATION_LANE_CLOSE_HOOK` | no | lanes: a command `lane_close.sh` runs (`sh -c`, in the lane's worktree) after merging `ROTATION_MERGE_FROM` and before the trigger — what the project regenerates after that merge. May be set in `rotation.conf` instead; non-zero exit stops the close |

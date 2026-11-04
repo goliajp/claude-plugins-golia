@@ -88,6 +88,10 @@
 #  75  TRIG-9 on, filled verdict with red              → exit 1, TRIG-9 FAIL naming each red line
 #  76  TRIG-9 on, filled verdict with red=0            → TRIG-9 PASS, exit 0
 #  77  TRIG-9 switch with an unknown value              → exit 2
+#  78  TRIG-9 on, a verdict filled by close_verdict_fill.sh under `pass:downSameSet`: 41 cases removed and
+#      32 added, pass −9, every common case still passes → TRIG-9 PASS (the smaller case set is not a drop)
+#  79  the same, nothing removed and pass −1           → exit 1, TRIG-9 FAIL naming the sweep's pass line
+#  80  the same, 41 removed and pass −50               → exit 1, TRIG-9 FAIL
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -616,6 +620,47 @@ CONF="$TMP/conf-trig9.conf" run_case "75 TRIG-9 on: red in the verdict blocks, e
 printf '{"headSha":"%s","checks":[],"results":{"filledAt":"x","red":[],"amber":["bench: x"]}}\n' "$(g rev-parse HEAD)" > "$TMP/verdicts/r-x.verdict.json"
 CONF="$TMP/conf-trig9.conf" run_case "76 TRIG-9 on: red=0 passes" 0 'TRIG-9 PASS close verdict of r-x \(head [0-9a-f]{9}\): red=0 amber=1'
 CONF="$TMP/conf-trig9-bogus.conf" run_case "77 unknown TRIG-9 switch value is a configuration error" 2 'ROTATION_TRIG9_VERDICT_RED must be on or off'
+# 78-80: the verdict comes from close_verdict_fill.sh over a downSameSet row, in its own stamp directory (the
+# gate's stamps above are untouched). Baseline at HEAD~2: s001..s200, all pass; the stamp at HEAD names its cases
+SS="$TMP/ss"
+mkdir -p "$SS/cases"
+printf '#name\tpaths\tartifact\tstamp\tminutes\tmode\tsync_paths\tneeds\tshow\tregress\nsweep\t*.txt\t-\tsweep\t1\tsync\t-\t-\tpass\tfail:nonzero;pass:downSameSet\n' > "$SS/rules.tsv"
+ss_cases() {  # ss_cases <file> <removed> <added> <failing>
+  python3 - "$SS/cases/$1" "$2" "$3" "$4" <<'PYC'
+import sys
+out, removed, added, failing = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+kept = [f"s{i:03d}" for i in range(removed + 1, 201)]
+with open(out, "w") as f:
+    for i, c in enumerate(kept):
+        f.write(f"{c}\t{'fail' if i < failing else 'pass'}\n")
+    for i in range(1, added + 1):
+        f.write(f"n{i:03d}\tpass\n")
+PYC
+}
+ss_cases base.tsv 0 0 0
+printf '{"tool":"sweep","ranAt":"2026-10-01T00:00:00Z","headSha":"%s","verdict":"ok","pass":200,"fail":0,"caseFile":"cases/base.tsv","file":"x"}\n' "$(g rev-parse HEAD~2)" > "$SS/stamps.jsonl"
+ss_fill() {  # ss_fill <pass> <case file>: the stamp at HEAD, a verdict planned for r-x, filled
+  printf '{"tool":"sweep","ranAt":"2026-10-01T01:00:00Z","headSha":"%s","verdict":"ok","pass":%s,"fail":0,"caseFile":"cases/%s"}\n' "$(g rev-parse HEAD)" "$1" "$2" > "$SS/sweep-latest.json"
+  printf '{"rotationId":"r-x","headSha":"%s","prevSha":"%s","checks":[{"name":"sweep","prerequisite":false,"stampFile":"sweep-latest.json","decision":"run"}]}\n' \
+    "$(g rev-parse HEAD)" "$(g rev-parse HEAD~1)" > "$TMP/verdicts/r-x.verdict.json"
+  printf '# verdict\n<!-- results:begin -->\n<!-- results:end -->\n' > "$TMP/verdicts/r-x.verdict.md"
+  env ROTATION_PROJECT_DIR="$REPO" ROTATION_CONF=/dev/null ROTATION_PROJECT_SH=/dev/null ROTATION_REPO="$REPO" \
+      HARDEV_STAMP_DIR="$SS" ROTATION_STAMP_HISTORY="$SS/stamps.jsonl" ROTATION_VERDICT_DIR="$TMP/verdicts" \
+      ROTATION_CLOSE_RULES="$SS/rules.tsv" HARDEV_ROTATIONS_LOG="$SS/rot.jsonl" HARDEV_EVENTS_LOG="$SS/events.jsonl" \
+      bash "$BIN/close_verdict_fill.sh" r-x >/dev/null 2>&1
+}
+ss_cases a.tsv 41 32 0
+ss_fill 191 a.tsv
+CONF="$TMP/conf-trig9.conf" run_case "78 TRIG-9 on: 41 removed, 32 added, pass −9, no common case lost → PASS" 0 \
+  'TRIG-9 PASS close verdict of r-x \(head [0-9a-f]{9}\): red=0 amber=0'
+ss_cases b.tsv 0 0 1
+ss_fill 199 b.tsv
+CONF="$TMP/conf-trig9.conf" run_case "79 TRIG-9 on: nothing removed, pass −1 → FAIL" 1 \
+  'TRIG-9 FAIL close verdict of r-x \(head [0-9a-f]{9}\) has 1 red: sweep: pass 200 → 199 \(pass: removed 0 / added 0 / same-set delta -1'
+ss_cases c.tsv 41 0 9
+ss_fill 150 c.tsv
+CONF="$TMP/conf-trig9.conf" run_case "80 TRIG-9 on: 41 removed, pass −50 → FAIL" 1 \
+  'TRIG-9 FAIL close verdict of r-x \(head [0-9a-f]{9}\) has 1 red: sweep: pass 200 → 150 \(pass: removed 41 / added 0 / same-set delta -9'
 EXTRA_ENV=()
 
 # ── observe mode: TRIG-1a / TRIG-2 computed and printed, not enforced ──
