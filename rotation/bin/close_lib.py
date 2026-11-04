@@ -14,6 +14,8 @@ the wrappers export from lib.sh / project.sh:
   ROTATION_ROTATIONS_LOG  rotations.jsonl
   ROTATION_EVENTS_LOG     events.jsonl
   ROTATION_MESSAGES       a project's message table (optional; see MESSAGES)
+  ROTATION_CASESET_CMD    `<cmd> <tool> <sha>`: a stamp's case list when the stamp names none (optional;
+                          see caseset_lib.py)
   ROTATION_CLOSE_CHECKS_OFF
                           check names (comma / space separated) switched off in
                           rotation.conf: their rows are dropped before planning, so
@@ -35,6 +37,8 @@ import statistics
 import subprocess
 import sys
 
+import caseset_lib
+
 REPO = os.environ.get("ROTATION_REPO") or os.getcwd()
 RULES = os.environ.get("ROTATION_CLOSE_RULES") or ""
 STAMP_DIR = os.environ.get("ROTATION_STAMP_DIR") or ""
@@ -43,6 +47,7 @@ VERDICT_DIR = os.environ.get("ROTATION_VERDICT_DIR") or ""
 ROTATIONS_LOG = os.environ.get("ROTATION_ROTATIONS_LOG") or ""
 EVENTS_LOG = os.environ.get("ROTATION_EVENTS_LOG") or ""
 MESSAGES_FILE = os.environ.get("ROTATION_MESSAGES") or ""
+CASESET_CMD = os.environ.get("ROTATION_CASESET_CMD") or ""
 CHECKS_OFF = {x for x in re.split(r"[,\s]+", os.environ.get("ROTATION_CLOSE_CHECKS_OFF") or "") if x}
 
 COLUMNS = ["name", "paths", "artifact", "stamp", "minutes", "mode", "sync_paths", "needs", "show", "regress"]
@@ -153,6 +158,22 @@ MESSAGES = {
     # fill: a `<key>:notice[:<label>]` entry names what the stamp lists under key, without judging it
     "notice_item": "{label}: {items}",
     "results_notices": "Listed, not judged: {items}",
+    # fill: `<key>:downSameSet` — what the count was judged on, on the check's row and in its red line
+    "caseset_same_set": "{reading}: removed {removed} / added {added} / same-set delta {delta:+d} ({lost} lost) · {src}",
+    "caseset_removed_bound": "{reading}: removed {removed} / added {added} / per-case verdicts missing on a side, "
+                             "red when the drop {drop} exceeds the {removed} removed · {src}",
+    "caseset_fallback": "{reading}: no usable case list ({side}: {why}), judged as `down`",
+    "caseset_sources": "this stamp {cur}; baseline {prev}",
+    "caseset_side_cur": "this stamp",
+    "caseset_side_prev": "baseline",
+    "caseset_src_file": "from caseFile {file}",
+    "caseset_src_inline": "from the stamp's cases",
+    "caseset_src_cmd": "listed at fill time by {cmd}",
+    "caseset_why_none": "names none and ROTATION_CASESET_CMD is unset",
+    "caseset_why_unreadable": "{err}",
+    "caseset_why_cmd": "{cmd} exited {rc}",
+    "caseset_why_repeat": "a case name repeats",
+    "caseset_why_mismatch": "the list counts {n}, the stamp says {what}={m}",
     "h_release": "## 4 Release",
     "release_form": "Form: **{word}** (`{form}`)",
     "release_sync": "- sync (blocking, the next rotation opens after): {items}",
@@ -299,7 +320,7 @@ def match_paths(files, inc, exc):
     return hits
 
 
-REGRESS_OPS = ("down", "up", "nonzero", "each-up", "notice")
+REGRESS_OPS = ("down", "up", "nonzero", "each-up", "notice", "downSameSet")
 
 
 def regress_spec_error(spec):
@@ -310,6 +331,9 @@ def regress_spec_error(spec):
         return f"want <key>:{'|'.join(REGRESS_OPS)}"
     if name == "notice":
         return "notice takes at most one label" if len(params) > 1 or spec.startswith("~") else None
+    if name == "downSameSet":
+        bad = len(params) > 1 or (params and not all(params[0].split(",")))
+        return "downSameSet takes at most one <verdict>[,<verdict>...]" if bad else None
     if name != "each-up":
         return "takes no parameters" if params else None
     if not 1 <= len(params) <= 3 or any(num(x) is None or num(x) < 0 for x in params):
@@ -703,6 +727,21 @@ def each_up(cur, prev, params):
     return hits
 
 
+def same_set(key, params, doc, prev, tool):
+    """the downSameSet judgement of one key (caseset_lib.py), as (note, hit, current, previous)"""
+    j = caseset_lib.judge(key, params, doc, prev, tool, STAMP_DIR, REPO, CASESET_CMD, num)
+    if j["mode"] == "fallback":
+        side, (why, kw) = j["why"]
+        return msg("caseset_fallback", reading=key, side=msg(f"caseset_side_{side}"), why=msg(why, **kw)), j["hit"], j["cn"], j["pn"]
+    (ck, ckw), (pk, pkw) = j["src"]
+    src = msg("caseset_sources", cur=msg(ck, **ckw), prev=msg(pk, **pkw))
+    if j["mode"] == "same-set":
+        note = msg("caseset_same_set", reading=key, removed=j["removed"], added=j["added"], delta=j["delta"], lost=j["lost"], src=src)
+    else:
+        note = msg("caseset_removed_bound", reading=key, removed=j["removed"], added=j["added"], drop=j["drop"], src=src)
+    return note, j["hit"], j["cn"], j["pn"]
+
+
 def fill(rid):
     rules = {r["name"]: r for r in load_rules()}
     json_path = os.path.join(VERDICT_DIR, f"{rid}.verdict.json")
@@ -760,6 +799,14 @@ def fill(rid):
                     flags.append({"level": level, "key": f"{key}.{name}", "value": cv, "previous": pv, "op": "each-up"})
                     (red if level == "red" else amber).append(f"{c['name']}: {key}.{name} {pv} → {cv}")
                 continue
+            if op.split(":")[0] == "downSameSet":
+                if prev:
+                    note, hit, cn, pn = same_set(key, op.split(":")[1:], doc, prev, r["tool"])
+                    c.setdefault("_caseSets", []).append(note)
+                    if hit:
+                        flags.append({"level": level, "key": key, "value": cn, "previous": pn, "op": "downSameSet"})
+                        (red if level == "red" else amber).append(f"{c['name']}: {key} {pn} → {cn} ({note})")
+                continue
             cn, pn = num(dig(doc, key)), num(dig(prev, key)) if prev else None
             hit = False
             if op == "nonzero":
@@ -782,7 +829,8 @@ def fill(rid):
             amber.append(msg("amber_not_at_head", name=c["name"], status=msg("status_pending"), sha=sha[:9]))
         c["result"] = {"status": status, "stampSha": sha, "ranAt": doc.get("ranAt"), "carriedTo": doc.get("carriedTo"),
                        "carriedReason": doc.get("carriedReason"), "elapsedSec": doc.get("elapsedSec"), "verdict": verdict,
-                       "previousSha": prev.get("headSha") if prev else None, "readings": readings, "flags": flags}
+                       "previousSha": prev.get("headSha") if prev else None, "readings": readings, "flags": flags,
+                       "caseSets": c.pop("_caseSets", [])}
     v["results"] = {"filledAt": now_iso(), "red": red, "amber": amber, "notices": notices}
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(v, f, ensure_ascii=False, indent=1)
@@ -836,6 +884,7 @@ def render_results(v):
             if x.get("delta") is not None:
                 s += f"({x['delta']:+g})"
             parts.append(s)
+        parts += r.get("caseSets") or []
         flags = r.get("flags") or []
         judge = join_names((msg("flag_red") if f["level"] == "red" else msg("flag_amber")) + f" {f['key']}" for f in flags) or msg("judge_ok")
         el = f"{r['elapsedSec']:.0f}s" if isinstance(r.get("elapsedSec"), (int, float)) else "—"

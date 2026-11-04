@@ -41,6 +41,13 @@
 #                                          noise (readings overlap) is not, crossing the ceiling is red, a list
 #                                          shorter than three judges nothing
 #  23  a rules table with an unknown regress op, or each-up without its bar → exit 2
+#  24  `notice` names a list and judges nothing
+#  25  `downSameSet`: a smaller case set is not a drop. Per-case verdicts on both sides (caseFile): 41 removed,
+#                                          32 added, pass −9 → not red; nothing removed, pass −1 → red; 41 removed,
+#                                          pass −50 → red. Membership only on one side (inline cases, or
+#                                          ROTATION_CASESET_CMD at fill time): red only when the drop exceeds the
+#                                          removed count, the same three outcomes. No list, or one that disagrees
+#                                          with the stamp: judged as `down`, and the verdict row says why
 #
 # Everything runs against the fixture: ROTATION_PROJECT_DIR / ROTATION_CONF=/dev/null /
 # ROTATION_PROJECT_SH=/dev/null, so the installed project's conf and adapter are never read.
@@ -528,6 +535,93 @@ printf '%s\n' "$out" | grep -q 'note ' && { echo "FAIL 24r an empty list was not
 sed 's/medianVsBunAot	-$/medianVsBunAot	~newCells:notice/' "$TMP/rules.tsv" > "$TMP/rules-badnotice.tsv"
 out=$(RULES="$TMP/rules-badnotice.tsv" run_plan "$B0" "$E2" --force); rc=$?
 check "24s an amber notice is refused → exit 2" "$out" "$rc" 2 'notice takes'
+
+# 25 — downSameSet. The baseline (round start B0) ran s001..s200, all pass. Case files hold `<case>\t<verdict>`
+sed 's/pass:down;passTotal:down;/pass:downSameSet;/' "$TMP/rules.tsv" > "$TMP/rules-ss.tsv"
+grep -q 'pass:downSameSet;harnessError:nonzero$' "$TMP/rules-ss.tsv" || { echo "FAIL 25 fixture: sweep row not rewritten"; fail=$(( fail + 1 )); }
+mkdir -p "$TMP/stamps/cases"
+cases_file() {  # cases_file <file> <removed: first n of s001..s200 gone> <added n001..> <failing: first n kept s-cases fail> [plain]
+  python3 - "$TMP/stamps/cases/$1" "$2" "$3" "$4" "${5:-}" <<'PYC'
+import gzip, sys
+out, removed, added, failing, plain = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+kept = [f"s{i:03d}" for i in range(removed + 1, 201)]
+rows = [(c, "fail:x" if i < failing else "pass") for i, c in enumerate(kept)] + [(f"n{i:03d}", "pass") for i in range(1, added + 1)]
+with (gzip.open(out, "wt") if out.endswith(".gz") else open(out, "w")) as f:
+    for c, v in rows:
+        f.write(c + "\n" if plain else f"{c}\t{v}\n")
+PYC
+}
+ss_prev() {  # ss_prev <extra json fields>: the baseline row at B0, pass 200 of 200
+  printf '{"tool":"sweep","ranAt":"2026-10-01T00:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":200,"total":200%s,"file":"x"}\n' "$B0" "$1" > "$TMP/stamps/stamps.jsonl"
+}
+ss_end() {  # ss_end <pass> <total> <extra json fields>: the stamp at E2
+  printf '{"tool":"sweep","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"pass":%s,"total":%s%s}\n' "$E2" "$1" "$2" "$3" > "$TMP/stamps/sweep-latest.json"
+}
+rm -f "$TMP/verdicts"/*
+out=$(RULES="$TMP/rules-ss.tsv" run_plan "$B0" "$E2" --force); rc=$?
+check "25p plan with a downSameSet row" "$out" "$rc" 0 'run=\['
+cases_file prev.tsv.gz 0 0 0
+ss_prev ',"caseFile":"cases/prev.tsv.gz"'
+cases_file a.tsv 41 32 0; ss_end 191 191 ',"caseFile":"cases/a.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25a 41 removed, 32 added, pass 200 → 191: the common cases all still pass, not red" "$out" "$rc" 0 'red=0 amber=0'
+grep -qF 'pass: removed 41 / added 32 / same-set delta +0 (0 lost) · this stamp from caseFile cases/a.tsv; baseline from caseFile cases/prev.tsv.gz' "$TMP/verdicts/r-test-1.verdict.md" \
+  && { echo "ok   25am the sweep row names removed / added / same-set delta and the lists' sources"; pass=$(( pass + 1 )); } \
+  || { echo "FAIL 25am the sweep row"; grep '^| sweep' "$TMP/verdicts/r-test-1.verdict.md"; fail=$(( fail + 1 )); }
+cases_file b.tsv 0 0 1; ss_end 199 200 ',"caseFile":"cases/b.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25b nothing removed, pass 200 → 199: red" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 200 → 199 \(pass: removed 0 / added 0 / same-set delta -1 \(1 lost\)'
+cases_file c.tsv 41 0 9; ss_end 150 159 ',"caseFile":"cases/c.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25c 41 removed, pass 200 → 150: red" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 200 → 150 \(pass: removed 41 / added 0 / same-set delta -9 \(9 lost\)'
+# membership only on the baseline side (an inline list): red only when the drop exceeds the removed count
+ss_prev ",\"cases\":[$(seq -f '"s%03g"' 1 200 | paste -sd, -)]"
+ss_end 191 191 ',"caseFile":"cases/a.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25d membership only: 41 removed, drop 9 → not red" "$out" "$rc" 0 'red=0 amber=0'
+grep -qF 'pass: removed 41 / added 32 / per-case verdicts missing on a side, red when the drop 9 exceeds the 41 removed · this stamp from caseFile cases/a.tsv; baseline from the stamp' "$TMP/verdicts/r-test-1.verdict.md" \
+  && { echo "ok   25dm the row says the removed-count bound was used"; pass=$(( pass + 1 )); } \
+  || { echo "FAIL 25dm the sweep row"; grep '^| sweep' "$TMP/verdicts/r-test-1.verdict.md"; fail=$(( fail + 1 )); }
+ss_end 199 200 ',"caseFile":"cases/b.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25e membership only: nothing removed, drop 1 → red" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 200 → 199 \(pass: removed 0 / added 0 / per-case verdicts missing'
+ss_end 150 159 ',"caseFile":"cases/c.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25f membership only: 41 removed, drop 50 → red" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 200 → 150 \(pass: removed 41 / added 0 / per-case verdicts missing'
+# no list on the baseline: the plain `down` rule, and the row says why
+ss_prev ''
+ss_end 191 191 ',"caseFile":"cases/a.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25g no list on the baseline: judged as down" "$out" "$rc" 0 'red=1' \
+  'RED +sweep: pass 200 → 191 \(pass: no usable case list \(baseline: names none and ROTATION_CASESET_CMD is unset\), judged as `down`\)'
+# the same baseline with ROTATION_CASESET_CMD: the membership listed at fill time, the source named
+printf '#!/bin/sh\n[ "$1" = sweep ] && [ "$2" = "%s" ] || exit 3\nseq -f "s%%03g" 1 200\n' "$B0" > "$TMP/caseset.sh"; chmod +x "$TMP/caseset.sh"
+out=$(ROTATION_CASESET_CMD="$TMP/caseset.sh" RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25h ROTATION_CASESET_CMD lists the baseline: 41 removed, drop 9 → not red" "$out" "$rc" 0 'red=0 amber=0'
+grep -qF "baseline listed at fill time by $TMP/caseset.sh" "$TMP/verdicts/r-test-1.verdict.md" \
+  && { echo "ok   25hm the row names the command as the baseline's source"; pass=$(( pass + 1 )); } \
+  || { echo "FAIL 25hm source"; grep '^| sweep' "$TMP/verdicts/r-test-1.verdict.md"; fail=$(( fail + 1 )); }
+out=$(ROTATION_CASESET_CMD=/usr/bin/false RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25i a failing command lists nothing: judged as down" "$out" "$rc" 0 'red=1' 'no usable case list \(baseline: /usr/bin/false exited 1\)'
+# a list that does not stand for its stamp (counts 191 pass, the stamp says 190) is not used
+cases_file prev.tsv.gz 0 0 0
+ss_prev ',"caseFile":"cases/prev.tsv.gz"'
+ss_end 190 191 ',"caseFile":"cases/a.tsv"'
+out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25j a list that disagrees with its stamp is not used" "$out" "$rc" 0 'red=1' \
+  'no usable case list \(this stamp: the list counts 191, the stamp says pass=190\)'
+# the counted verdicts as a parameter: passTotal counts pass and pass-negative
+sed 's/pass:down;passTotal:down;/passTotal:downSameSet:pass,pass-negative;/' "$TMP/rules.tsv" > "$TMP/rules-ss2.tsv"
+printf 's001\tpass\ns002\tpass-negative\ns003\tbug:x\n' > "$TMP/stamps/cases/p2.tsv"
+printf 's001\tpass\ns002\tbug:y\ns004\tpass\n' > "$TMP/stamps/cases/e2.tsv"
+printf '{"tool":"sweep","ranAt":"2026-10-01T00:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"passTotal":2,"caseFile":"cases/p2.tsv","file":"x"}\n' "$B0" > "$TMP/stamps/stamps.jsonl"
+printf '{"tool":"sweep","ranAt":"2026-10-01T02:00:00Z","headSha":"%s","verdict":"ok","harnessError":0,"passTotal":2,"caseFile":"cases/e2.tsv"}\n' "$E2" > "$TMP/stamps/sweep-latest.json"
+out=$(RULES="$TMP/rules-ss2.tsv" run_fill r-test-1); rc=$?
+check "25k counted verdicts as a parameter: passTotal 2 → 2 but a common case lost pass-negative → red" "$out" "$rc" 0 'red=1' \
+  'RED +sweep: passTotal 2 → 2 \(passTotal: removed 1 / added 1 / same-set delta -1 \(1 lost\)'
+sed 's/pass:down;passTotal:down;/pass:downSameSet:a:b;/' "$TMP/rules.tsv" > "$TMP/rules-ssbad.tsv"
+out=$(RULES="$TMP/rules-ssbad.tsv" run_plan "$B0" "$E2" --force); rc=$?
+check "25x downSameSet with two parameters → exit 2" "$out" "$rc" 2 'downSameSet takes at most one'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
