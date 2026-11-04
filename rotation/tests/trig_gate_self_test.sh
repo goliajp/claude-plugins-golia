@@ -92,6 +92,7 @@
 #      32 added, pass −9, every common case still passes → TRIG-9 PASS (the smaller case set is not a drop)
 #  79  the same, nothing removed and pass −1           → exit 1, TRIG-9 FAIL naming the sweep's pass line
 #  80  the same, 41 removed and pass −50               → exit 1, TRIG-9 FAIL
+#  81  the same, one case lost and one added: pass 200 → 200 → exit 1, TRIG-9 FAIL naming the lost case
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -661,6 +662,10 @@ ss_cases c.tsv 41 0 9
 ss_fill 150 c.tsv
 CONF="$TMP/conf-trig9.conf" run_case "80 TRIG-9 on: 41 removed, pass −50 → FAIL" 1 \
   'TRIG-9 FAIL close verdict of r-x \(head [0-9a-f]{9}\) has 1 red: sweep: pass 200 → 150 \(pass: removed 41 / added 0 / same-set delta -9'
+ss_cases d.tsv 0 1 1
+ss_fill 200 d.tsv
+CONF="$TMP/conf-trig9.conf" run_case "81 TRIG-9 on: one case lost, one added, pass 200 → 200 → FAIL" 1 \
+  'TRIG-9 FAIL close verdict of r-x \(head [0-9a-f]{9}\) has 1 red: sweep: pass 200 → 200 \(pass: removed 0 / added 1 / same-set delta -1 / lost 1: s001 · '
 EXTRA_ENV=()
 
 # ── observe mode: TRIG-1a / TRIG-2 computed and printed, not enforced ──

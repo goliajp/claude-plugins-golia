@@ -15,14 +15,45 @@ the cases must number the stamp's `caseCount`, else its `total`, when it has eit
 a name or cannot be read is not used, and the verdict says why.
 
 Rules, against the baseline stamp:
-  same-set       both lists carry verdicts: red when fewer of the common cases carry a counted verdict now than
-                 before (the same-set delta d < 0); a case that went from counted to not is `lost`
+  same-set       both lists carry verdicts: red when any common case went from a counted verdict to another
+                 (`lost`, the first five named), and so whenever fewer common cases are counted now (delta < 0)
   removed-bound  both lists, verdicts missing on one side: red when the count fell by more than the cases removed
   fallback       no usable list on one side: the plain `down` rule
 """
 import gzip
 import os
 import subprocess
+
+CMD = os.environ.get("ROTATION_CASESET_CMD") or ""
+LOST_NAMED = 5
+
+# the verdict's words for this op; close_lib.py merges them into its MESSAGES (a project's table may override them)
+MESSAGES = {
+    "caseset_same_set": "{reading}: removed {removed} / added {added} / same-set delta {delta:+d} / lost {lost}{lost_names}"
+                        " · {src}",
+    "caseset_lost_names": ": {names}{more}",
+    "caseset_removed_bound": "{reading}: removed {removed} / added {added} / per-case verdicts missing on a side, "
+                             "red when the drop {drop} exceeds the {removed} removed · {src}",
+    "caseset_fallback": "{reading}: no usable case list ({side}: {why}), judged as `down`",
+    "caseset_sources": "this stamp {cur}; baseline {prev}",
+    "caseset_side_cur": "this stamp",
+    "caseset_side_prev": "baseline",
+    "caseset_src_file": "from caseFile {file}",
+    "caseset_src_inline": "from the stamp's cases",
+    "caseset_src_cmd": "listed at fill time by {cmd}",
+    "caseset_why_none": "names none and ROTATION_CASESET_CMD is unset",
+    "caseset_why_unreadable": "{err}",
+    "caseset_why_cmd": "{cmd} exited {rc}",
+    "caseset_why_repeat": "a case name repeats",
+    "caseset_why_mismatch": "the list counts {n}, the stamp says {what}={m}",
+}
+
+
+def spec_error(params):
+    """why `downSameSet` parameters cannot be judged, or None"""
+    if len(params) > 1 or (params and not all(params[0].split(","))):
+        return "downSameSet takes at most one <verdict>[,<verdict>...]"
+    return None
 
 
 def _parse(lines):
@@ -104,9 +135,35 @@ def judge(key, params, cur, prev, tool, stamp_dir, repo, cmd, num):
         common = a.keys() & b.keys()
         pc = sum(1 for k in common if a[k] in counted)
         cc = sum(1 for k in common if b[k] in counted)
-        lost = sum(1 for k in common if a[k] in counted and b[k] not in counted)
-        out.update(mode="same-set", delta=cc - pc, lost=lost, hit=cc < pc)
+        lost = sorted(k for k in common if a[k] in counted and b[k] not in counted)
+        out.update(mode="same-set", delta=cc - pc, lost=lost, hit=bool(lost))
     else:
         drop = (pn - cn) if cn is not None and pn is not None else 0
         out.update(mode="removed-bound", drop=drop, hit=drop > removed)
     return out
+
+
+def note(key, j, msg):
+    """the verdict's words for one judgement: the check's row and its red line"""
+    if j["mode"] == "fallback":
+        side, (why, kw) = j["why"]
+        return msg("caseset_fallback", reading=key, side=msg(f"caseset_side_{side}"), why=msg(why, **kw))
+    (ck, ckw), (pk, pkw) = j["src"]
+    src = msg("caseset_sources", cur=msg(ck, **ckw), prev=msg(pk, **pkw))
+    if j["mode"] == "removed-bound":
+        return msg("caseset_removed_bound", reading=key, removed=j["removed"], added=j["added"], drop=j["drop"], src=src)
+    lost = j["lost"]
+    names = msg("caseset_lost_names", names=", ".join(lost[:LOST_NAMED]), more=" …" if len(lost) > LOST_NAMED else "") if lost else ""
+    return msg("caseset_same_set", reading=key, removed=j["removed"], added=j["added"], delta=j["delta"], lost=len(lost),
+               lost_names=names, src=src)
+
+
+def flag(c, key, op, level, doc, prev, tool, flags, bucket, stamp_dir, repo, msg, num):
+    """judge `<key>:downSameSet[...]` of check `c` against `prev`: the note goes on the check's row
+    (c["_caseSets"], moved into its result by the fill), a hit into `flags` and `bucket` (the red or amber list)"""
+    j = judge(key, op.split(":")[1:], doc, prev, tool, stamp_dir, repo, CMD, num)
+    text = note(key, j, msg)
+    c.setdefault("_caseSets", []).append(text)
+    if j["hit"]:
+        flags.append({"level": level, "key": key, "value": j["cn"], "previous": j["pn"], "op": "downSameSet"})
+        bucket.append(f"{c['name']}: {key} {j['pn']} → {j['cn']} ({text})")
