@@ -4,7 +4,8 @@
 # executor in the lane's worktree, through the lane's shim (`bash .claude/rotation-lanes/<lane>/lane_close.sh`),
 # after the close checks and the handoff are done — in place of `trigger.sh self`:
 #
-#   1. git merge <ROTATION_MERGE_FROM>   (default develop; message `merge: <base> into <branch>`) — the round
+#   1. git merge <base>                  (--merge-from REF, else ROTATION_MERGE_FROM, else develop; message
+#                                         `merge: <base> into <branch>`) — the round
 #                                         closes on top of what the merging lane has, so the tag merges back cleanly
 #   2. ROTATION_LANE_CLOSE_HOOK          (optional, project.sh or rotation.conf; run with sh -c in the worktree)
 #                                         what the project regenerates after that merge
@@ -21,13 +22,20 @@
 # A merge conflict leaves the merge in progress for the executor to resolve (or `git merge --abort`) and
 # prints the conflicted files. Run it again once resolved: the merge is then already done.
 #
-# usage: lane_close.sh
+# usage: lane_close.sh [--merge-from REF]
+#   --merge-from REF   the commit to merge this once (a round-end sha of the merging lane, say); the key in
+#                      rotation.conf stays the standing default and the conf file is not touched
 # exit: 0 tagged and announced · 1 a step failed (not a lane worktree on its branch, the tag exists, the hook,
 #       the trigger gate) · 2 usage · 3 merge conflict
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-[ "$#" -eq 0 ] || { echo "usage: lane_close.sh" >&2; exit 2; }
+MERGE_FROM_ARG=""
+if [ "${1:-}" = --merge-from ]; then
+  [ -n "${2:-}" ] || { echo "usage: lane_close.sh [--merge-from REF]" >&2; exit 2; }
+  MERGE_FROM_ARG=$2; shift 2
+fi
+[ "$#" -eq 0 ] || { echo "usage: lane_close.sh [--merge-from REF]" >&2; exit 2; }
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/lane_lib.sh"
 [ -n "$ROTATION_LANE" ] || { echo "lane_close: run it through a lane's shim (.claude/rotation-lanes/<lane>/lane_close.sh)" >&2; exit 2; }
@@ -45,7 +53,7 @@ if g rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
   echo "lane_close: tag $tag exists already — this round was closed" >&2
   exit 1
 fi
-base="${ROTATION_MERGE_FROM:-develop}"
+base="${MERGE_FROM_ARG:-${ROTATION_MERGE_FROM:-develop}}"
 
 echo "lane_close: 1 merge $base into $branch"
 if ! g merge --no-edit -m "merge: $base into $branch" "$base"; then
