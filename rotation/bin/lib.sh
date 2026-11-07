@@ -65,6 +65,8 @@ ROTATIONS_LOG="${HARDEV_ROTATIONS_LOG:-${ROTATION_ROTATIONS_LOG:-$STATE_DIR/rota
 EVENTS_LOG="${HARDEV_EVENTS_LOG:-${ROTATION_EVENTS_LOG:-$STATE_DIR/events.jsonl}}"
 EVENTS_LOG_DEFAULT="$STATE_DIR/events.jsonl"
 MANAGER_ACTIVE_FILE="$STATE_DIR/manager.active"
+# the path claims (claim.sh) are one file for every lane: the first lane's state directory
+CLAIMS_FILE="${ROTATION_STATE_DIR:-$CLAUDE_DIR/rotation-state}/claims.jsonl"
 # the intent and the handoff: the main lane's at .claude/, a lane's beside its conf
 if [ -n "$ROTATION_LANE" ]; then
   INTENT_FILE="$PROJECT_ROTATION_DIR/autorun-intent"

@@ -53,6 +53,10 @@ One line per event: `{"at","ts","kind","rotationId","head", …}` plus the kind'
 
 "This round's events" are those with `ts` ≥ the last self row's `ts`.
 
+## claims.jsonl
+
+`.claude/rotation-state/claims.jsonl` (under `ROTATION_STATE_DIR` when set): one file for every lane, append-only, written by `claim.sh` only. One line per action, compact JSON: `{"kind":"claim.add"|"claim.drop","lane","rid","glob","reason","ts","at"}` — `lane` is `ROTATION_LANE`, else the first lane's `ROTATION_LANE_NAME`, else `main`; `rid` the lane's round at the time (for a drop by `lane_close.sh`, the round that closed); `ts` epoch seconds, `at` the same in RFC-3339 UTC. A claim of `(lane, glob)` is in force from its `claim.add` until a later `claim.drop` of the same pair; a second add of a pair in force replaces its `rid` and `reason`.
+
 ## manager.active
 
 One line, present while a round is being managed: `rotation=<rid> executor=<name> id=<agentId> since=<iso> session=<managerSession>` (`rotation=` is empty before the first row exists). Written by `agent_log.sh start … rotation`, left in place by a plain `agent_log.sh end` and by the trigger (the manager is still managing between rounds), removed only by `ROTATION_MANAGER_IDLE=1 agent_log.sh end … rotation` when the manager stops on purpose. While it exists: `FOREIGN-COMMIT` is checked, and a resumed session gets the recovery page printed into its context.

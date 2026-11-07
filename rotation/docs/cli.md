@@ -50,6 +50,9 @@ For every command marked `conf` below, in this order:
 | `window open` · `extend` | `NAME --until ISO\|+SECONDS\|EPOCH [--host H] [--reason R]` | `window.sh open` / `extend` | — | conf | 0 · 1 (extend) no such window open · 2 usage |
 | `window close` | `NAME [--reason R]` | `window.sh close` | — | conf | 0 · 1 no such window open · 2 usage |
 | `window status` | `[NAME]` | `window.sh status` | yes | conf | 0 a window open · 1 closed · 2 usage |
+| `claim add` | `GLOB [--reason R]` | `claim.sh add` | — | conf | 0 · 2 usage · 3 recorded, overlaps another lane's claim |
+| `claim drop` | `[GLOB] [--rid RID] [--reason R]` | `claim.sh drop` | — | conf | 0 · 1 no such claim in force · 2 usage |
+| `claim list` | `[GLOB]` | `claim.sh list` | yes | conf | 0 · 2 usage |
 | `event add` | `KIND [key=value]...` | `event.sh` | — | conf | 0 · 2 usage or a required key missing |
 | `agent start` / `agent end` | `NAME ROLE MODEL [TASK] [REPORT]` | `agent_log.sh start` / `end` | — | conf | 0 · 2 usage |
 | `manager start` · `spawn` · `resume` · `verify` · `stop` | as `manager_log.sh` | `manager_log.sh <verb>` | — | conf | 0 · 2 usage |

@@ -20,7 +20,9 @@
 #   2. ROTATION_LANE_CLOSE_HOOK          (optional, project.sh or rotation.conf; run with sh -c in the worktree)
 #                                         what the project regenerates after that merge
 #   3. trigger.sh self                   the lane's trigger gate; blocked = nothing below happens
-#   4. git tag lane/<lane>/<rid> HEAD    <rid> is the round that closed (the id its events carry)
+#   4. git tag lane/<lane>/<rid> HEAD    <rid> is the round that closed (the id its events carry); then every
+#                                         path claim of this lane in force from round <rid> is dropped
+#                                         (claim.sh drop --rid <rid>, reason lane-close)
 #   5. the inbox row                     at ROTATION_INBOX_INSERT_LINE (default 65) of ROTATION_INBOX_FILE (default
 #                                         .claude/autorun-inbox.md):
 #                                         | <date> | lane/<lane>/<rid> ready · <N> commit · gate <N>/<F>/<S> | <handoff> |
@@ -124,6 +126,8 @@ rc=$?
 head=$(g rev-parse --short HEAD)
 g tag "$tag" HEAD || { echo "lane_close: git tag $tag failed" >&2; exit 1; }
 echo "lane_close: 4 tag $tag → $head"
+# the round's path claims end with it
+bash "$SCRIPT_DIR/claim.sh" drop --rid "$rid" --reason lane-close | sed 's/^/lane_close: 4 /'
 
 # the round's numbers: the row the trigger just wrote, the round's last gate.end
 nums=$(python3 - "$ROTATIONS_LOG" "$EVENTS_LOG" "$rid" <<'PY'

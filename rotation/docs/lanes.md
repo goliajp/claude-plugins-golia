@@ -56,7 +56,7 @@ Every lane on one page, and one command for all of them:
 
 ```
 bash .claude/rotation/lanes.sh [--json]          # one line per lane: branch, rid, head, last event, running executors, manager.active;
-                                                 # then `windows:` the open windows (not in --json)
+                                                 # then `windows:` the open windows and `claims:` the path claims (not in --json)
 bash .claude/rotation/doctor.sh --all            # each lane's doctor under `== lane <name> ==`; exit = the highest
 bash .claude/rotation/recover.sh --all [--json] [--no-probe]
 bash .claude/rotation/watchdog.sh --all [--interval …] [--stale …] [--wake …] [--dirty …] [--once]
@@ -80,7 +80,7 @@ bash .claude/rotation-lanes/<lane>/lane_close.sh
 1. `git merge <ROTATION_MERGE_FROM>` (default `develop`, message `merge: <base> into <lane branch>`): the round closes on what the merging lane has, so the tag merges back without surprises. A conflict exits 3, prints the conflicted files and leaves the merge in progress; resolve and commit (or `git merge --abort`) and run it again.
 2. `ROTATION_LANE_CLOSE_HOOK` (optional; `project.sh` or `rotation.conf`): what the project regenerates after that merge, run with `sh -c` in the worktree. Non-zero stops the close (exit 1).
 3. `trigger.sh self`: the lane's trigger gate. Blocked = exit 1, no tag, no inbox row: keep working and run it again.
-4. `git tag lane/<lane>/<rid> HEAD`, where `<rid>` is the round that closed (the id its events carry).
+4. `git tag lane/<lane>/<rid> HEAD`, where `<rid>` is the round that closed (the id its events carry). Then every path claim of this lane made in that round and still in force is dropped (`claim.sh drop --rid <rid>`, reason `lane-close`).
 5. One row at line `ROTATION_INBOX_INSERT_LINE` (default 65) of `ROTATION_INBOX_FILE` (default `.claude/autorun-inbox.md`; through `lane_enter.sh`'s link this is the main tree's inbox): `| <date> | lane/<lane>/<rid> ready · <N> commit · gate <N>/<F>/<S> | .claude/rotation-lanes/<lane>/handoff.md |`. The commit count is the `commitsInSession` of the row the trigger wrote, the gate triple the round's last `gate.end`; `?` where unknown.
 6. Event `lane.ready` in the lane's log. Last line `LANE READY <tag> head=<sha>`.
 
@@ -125,7 +125,7 @@ What the kernel enforces for several lanes running side by side, in place of rul
 | TRIG-10 | every first-parent commit of the session has a `preflight.end` with its sha (`ROTATION_PREFLIGHT_PER_COMMIT=1`) | `trig_gate.sh`, [gates.md](gates.md) |
 | TRIG-11 | no more than `ROTATION_BATCH_MAX` commits between two `gate.end` events, or from the last one to HEAD | `trig_gate.sh`, [gates.md](gates.md) |
 | Lane guard | `event.sh` without `ROTATION_LANE` in a lane's tree refuses (exit 2) instead of writing the first lane's log | `event.sh` (above) |
-| Claims (to do) | a register of which lane is changing which paths, so two lanes do not fix the same defect twice; `lane_close.sh` would drop the round's claims. Not built yet | — |
+| Claims | `claim.sh add <glob> [--reason R]` before a worker starts on a path; another lane's claim in force that overlaps (equal, or either glob matches the other's literal text with `fnmatch`) is printed as `CONFLICT lane=… glob=… reason=… since=…` and the exit is 3, the claim recorded all the same: the executor writes it to the inbox for the manager to order. `claim.sh list [<glob>]` the claims in force, `drop [<glob>]` one or the round's; `lane_close.sh` drops the round's claims after the tag; `lanes.sh` ends with `claims: <n> (<lane>:<n>, …)`. One append-only file for every lane, see [data.md](data.md#claimsjsonl) | `claim.sh`, `lane_close.sh` |
 
 ## Removing a lane
 
