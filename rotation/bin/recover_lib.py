@@ -46,6 +46,10 @@ Environment (set by recover.sh / watchdog.sh from lib.sh and the project adapter
                              subagents/agent-<id>.jsonl, <session> being the managerSession on the agent's start event,
                              else on the round's executor's (agents are nested under the session that started the
                              executor); with no session or id on record, or no such file, the state is unknown.
+  ROTATION_WAIT_COMMANDS     Python regexp (rotation.conf, default `bench-lock (bench|heavy)|mini_slot\\.sh wait|
+                             mini_heavy\\.sh|firefly_slot\\.sh wait`; empty = none): a worker past ROTATION_WORKER_STALE whose
+                             transcript ends on an unanswered call whose command matches is `waiting` (the page shows the
+                             matched part), no WAKE; from 3 × ROTATION_WORKER_STALE it is `dead?` again
   ROTATION_CLAUDE_CONFIG_DIRS
                              `:`-separated Claude Code config directories searched for that transcript; default
                              $CLAUDE_CONFIG_DIR, ~/.claude and every ~/.claude-* directory (several accounts may run
@@ -74,6 +78,10 @@ WORKER_STALE = int(os.environ.get('ROTATION_WORKER_STALE') or 1200)
 # a dead? worker that may only be waiting (its last tool call is still open, or the executor recorded it is waiting
 # on it) makes the watchdog WAKE only after this long, and the WAKE asks rather than prescribes a re-dispatch
 WORKER_WAIT_STALE = 3 * WORKER_STALE
+# a worker whose open call is one of these (a queue for a shared host) is waiting, not dead?, until WORKER_WAIT_STALE.
+# set but empty in the conf = no command counts
+_wait = os.environ.get('ROTATION_WAIT_COMMANDS')
+WAIT_COMMANDS = re.compile(r'bench-lock (bench|heavy)|mini_slot\.sh wait|mini_heavy\.sh|firefly_slot\.sh wait' if _wait is None else _wait) if _wait != '' else None
 KERNEL_DIR = os.path.dirname(os.path.abspath(__file__))
 ORIGIN = os.environ.get('ROTATION_AGENT_ORIGIN_PATTERN') or os.environ.get('HARDEV_AGENT_ORIGIN_PATTERN') or '^Agent-Origin:'
 # the manager marker: while it exists a rotation is being managed, and every commit on the main tree must come
@@ -422,12 +430,15 @@ def transcript_state(agent, session, now):
     path = found[max(found, key=os.path.getmtime)]
     mtime = int(os.path.getmtime(path))
     age = now - mtime
+    call = open_tool_call(path) if age >= WORKER_STALE else None
+    cmd = (call or {}).get('input', {}).get('command') if isinstance((call or {}).get('input'), dict) else None
     return {'state': 'dead?' if age >= WORKER_STALE else 'alive', 'why': None, 'path': path, 'mtime': mtime, 'age': age,
-            'session': session, 'openTool': open_tool_call(path) if age >= WORKER_STALE else None}
+            'session': session, 'openTool': call['name'] if call else None,
+            'openCommand': cmd if isinstance(cmd, str) else None}
 
 
 def open_tool_call(path):
-    """the name of the tool call the transcript's last entry makes and nothing has answered yet, else None.
+    """the tool call the transcript's last entry makes and nothing has answered yet, as {name, input}, else None.
     a worker blocked in one long foreground call (polling a remote job, say) writes nothing until it returns, so its
     transcript ends on that call; a worker whose session died mid-turn looks the same, which is why this only
     softens a dead? and never clears it"""
@@ -450,7 +461,7 @@ def open_tool_call(path):
             return None
         content = (entry.get('message') or {}).get('content') or []
         calls = [c for c in content if isinstance(c, dict) and c.get('type') == 'tool_use']
-        return (calls[-1].get('name') or 'tool') if calls else None
+        return {'name': calls[-1].get('name') or 'tool', 'input': calls[-1].get('input')} if calls else None
     return None
 
 
@@ -525,11 +536,18 @@ def worker_states(agents, now, events, round_ts):
         t = transcript_state(a, a.get('managerSession') or fallback, now)
         if t['state'] == 'dead?' and held_by and (not ws.get('workers') or a['name'] in ws['workers']):
             t['state'], t['window'] = 'waiting', held_by
+        # its open call queues for a shared host (ROTATION_WAIT_COMMANDS): silence is that queue, up to 3 × the threshold
+        hit = WAIT_COMMANDS.search(t['openCommand']) if t['state'] == 'dead?' and WAIT_COMMANDS and t.get('openCommand') else None
+        if hit:
+            t['waitingOn'] = hit.group(0)
+            if t['age'] < WORKER_WAIT_STALE:
+                t['state'] = 'waiting'
         if t['state'] == 'dead?':
             t['relayedTs'] = max((r for r in resumes if r >= t['mtime'] + WORKER_STALE), default=None)
             reasons = []
             if t.get('openTool'):
-                reasons.append(f"its last {t['openTool']} call has no result yet")
+                reasons.append(f"its last {t['openTool']} call" + (f" (waiting on {t['waitingOn']})" if hit else '')
+                               + " has no result yet")
             if a['name'] in waited_on:
                 reasons.append(f"the executor recorded at {waited.get('at')} that it is waiting on it")
             t['maybeWaiting'] = '; '.join(reasons) or None
@@ -804,9 +822,15 @@ def print_scene(s):
           f" last={a['lastAt']} ({ago(a.get('lastTs'), now)}){extra}")
     for a in s['workers']:
         t = a['transcript']
-        if t['state'] == 'waiting':
+        if t['state'] == 'waiting' and t.get('window'):
             p(f"  waiting {a['name']}: its transcript has not been written for {t['age'] // 60} min, and the executor waits "
               f"for window {t['window']}, still open: not dead?")
+            continue
+        if t['state'] == 'waiting':
+            cmd = t['openCommand'] if len(t['openCommand']) <= 160 else t['openCommand'][:157] + '...'
+            p(f"  waiting {a['name']}: its transcript has not been written for {t['age'] // 60} min, and its open "
+              f"{t['openTool']} call waits on {t['waitingOn']} (ROTATION_WAIT_COMMANDS): not dead? until "
+              f"{WORKER_WAIT_STALE // 60} min · {cmd}")
             continue
         if t['state'] != 'dead?':
             continue

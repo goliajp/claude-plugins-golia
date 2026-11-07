@@ -61,6 +61,9 @@ ROTATION_CLOSE_RULES=.claude/rotation/close_rules.tsv
 # recover / watchdog: seconds a worker still registered as running may go without its transcript being written
 # before it is `dead?` on the recover page and a WAKE for the watchdog. Kernel default 1200
 ROTATION_WORKER_STALE=1200
+# a silent worker whose transcript ends on an unanswered call matching this Python regexp is `waiting` (a queue for a
+# shared host), not `dead?`, until 3 × ROTATION_WORKER_STALE; set and empty = no command counts. Kernel default shown
+# ROTATION_WAIT_COMMANDS=bench-lock (bench|heavy)|mini_slot\.sh wait|mini_heavy\.sh|firefly_slot\.sh wait
 # the close planner's message table (the verdict's language); kernel default is English
 # ROTATION_MESSAGES=.claude/rotation/messages.conf
 

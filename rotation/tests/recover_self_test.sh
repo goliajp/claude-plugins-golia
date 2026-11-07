@@ -742,6 +742,37 @@ expect_has "executor.waiting names it: the page says so" "$out" "the executor re
 expect_not "executor.waiting names it: no re-dispatch is prescribed" "$out" "dispatch a fresh isolated worker"
 watch >/dev/null; expect_eq "executor.waiting names it, 1500 s: no WAKE" "$?" "0"
 rm -rf "$TMP/cfg-b"
+# the open call queues for a shared host (ROTATION_WAIT_COMMANDS): waiting, not dead?, until 3 × the threshold
+tr_file_cmd() {  # tr_file_cmd <seconds ago> <command>: last entry an open Bash call running that command
+  local f="$TMP/cfg-b/projects/-x-repo/sess-A/subagents/agent-ag-w6.jsonl"
+  mkdir -p "$(dirname "$f")"
+  printf '%s\n' '{"type":"user","message":{"content":"go"}}' \
+    "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"tu2\",\"name\":\"Bash\",\"input\":{\"command\":\"$2\"}}]}}" > "$f"
+  touch -t "$(date -r "$((NOW - $1))" +%Y%m%d%H%M.%S)" "$f"
+}
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 3450 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+ev 3400 agent.start "$(agent w6 worker '"id":"ag-w6"')"
+tr_file_cmd 1500 'cd /w && bash .dev/autorun/mini_slot.sh wait && cargo build -j 8'
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "wait command, 1500 s: waiting, with what it waits on" "$out" "waiting w6: its transcript has not been written for 25 min, and its open Bash call waits on mini_slot.sh wait (ROTATION_WAIT_COMMANDS)"
+expect_has "wait command: the command is shown" "$out" "· cd /w && bash .dev/autorun/mini_slot.sh wait && cargo build -j 8"
+expect_not "wait command: no dead? line" "$out" "dead? w6"
+expect_eq "wait command: --json state and match" "$(run "$BIN/recover.sh" --json --no-probe | python3 -c 'import json,sys; t=json.load(sys.stdin)["workers"][0]["transcript"]; print(t["state"], t["waitingOn"])')" "waiting mini_slot.sh wait"
+watch >/dev/null; expect_eq "wait command, 1500 s: no WAKE" "$?" "0"
+tr_file_cmd 3700 'cd /w && bash .dev/autorun/mini_slot.sh wait && cargo build -j 8'
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "wait command, ≥ 3 × the threshold: dead? again, saying what it waited on" "$out" "but its last Bash call (waiting on mini_slot.sh wait) has no result yet"
+watch >/dev/null; expect_eq "wait command, ≥ 3 × the threshold: a WAKE" "$?" "10"
+tr_file_cmd 1500 'bench-lock heavy cargo test'
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAIT_COMMANDS=\n' > "$TMP/nowait.conf"
+expect_has "default list: bench-lock heavy waits" "$(run "$BIN/recover.sh" --no-probe)" "waits on bench-lock heavy"
+expect_has "ROTATION_WAIT_COMMANDS set empty: no command counts, dead? (softened)" "$(CONF="$TMP/nowait.conf" run "$BIN/recover.sh" --no-probe)" "but its last Bash call has no result yet"
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAIT_COMMANDS=my_queue\\.sh\n' > "$TMP/ownwait.conf"
+tr_file_cmd 1500 'sh my_queue.sh take'
+expect_has "a project's own list from the conf" "$(CONF="$TMP/ownwait.conf" run "$BIN/recover.sh" --no-probe)" "waits on my_queue.sh"
+rm -rf "$TMP/cfg-b"
 # the worker's own session on its start event wins over the executor's
 reset
 ev 3500 rotation.end '"trigger":"self"'
