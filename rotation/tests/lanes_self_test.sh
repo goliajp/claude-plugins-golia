@@ -22,7 +22,8 @@
 #                      both stay in force; drop without a glob drops the lane's round; lane_close drops the round's
 #   --all              doctor / recover / watchdog run every lane under `== lane <name> ==`, exit = the highest
 #   lane_close.sh      in the lane's worktree: merge the base, the hook, the trigger (stubbed), the tag, the inbox
-#                      row, lane.ready; refused off the lane's branch; a blocked trigger tags nothing; a conflict
+#                      row, lane.ready; refused off the lane's branch; a failing ROTATION_LANE_CLOSE_PRECHECK stops it
+#                      before the merge (exit 1, its last 20 lines); a blocked trigger tags nothing; a conflict
 #                      exits 3 naming the file
 #   lane_merge.sh      merge.start / merge.end around a --no-ff merge of the tag; a conflict exits 3 and records
 #                      status conflict; --returned records lane.returned and writes the inbox row
@@ -365,10 +366,21 @@ expect_has "handoff check: every missing title, not just the first" "$out" '^  �
 expect_not "handoff check: a present title is not listed" "$out" '^  rotate-trigger$'
 expect_not "handoff check: nothing merged" "$out" '^lane_close: 1 merge'
 printf '# lane handoff\n\n### 本轮的架构影响\n\nnone\n\n## rotate-trigger\n\naxis: A\n\n**下一步**: x\n' > "$PL/handoff.md"
+# the project's precheck: after the trace check, before the merge, with the merge base and HEAD
+printf '%s\n' 'ROTATION_LANE_CLOSE_PRECHECK=for i in $(seq 1 25); do echo l$i; done; echo "mb=$ROTATION_MERGE_BASE head=$ROTATION_HEAD"; exit 4' >> "$PL/rotation.conf"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "precheck failing: exit 1, no tag" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "precheck failing: its exit code" "$out" '^lane_close: the precheck failed \(exit 4\)'
+expect_has "precheck: the merge base and HEAD are in its environment" "$out" "^  mb=$(gw merge-base develop HEAD) head=$(gw rev-parse HEAD)\$"
+expect_eq "precheck failing: only its last 20 lines" "$(printf '%s\n' "$out" | grep -cE '^  l[0-9]+$'):$(printf '%s\n' "$out" | grep -c '^  l6$'):$(printf '%s\n' "$out" | grep -c '^  l7$')" "19:0:1"
+expect_not "precheck failing: nothing merged" "$out" '^lane_close: 1 merge'
+expect_eq "precheck failing: the lane's HEAD is unchanged" "$(gw rev-parse HEAD)" "$(gw rev-parse "$PHEAD")"
+printf '%s\n' 'ROTATION_LANE_CLOSE_PRECHECK=test "$ROTATION_MERGE_BASE" = "$(git merge-base develop HEAD)" && touch .claude/precheck-ran' >> "$PL/rotation.conf"
 (cd "$PW" && bash .claude/rotation-lanes/p/claim.sh add 'crates/a/*' --reason w1 >/dev/null && bash .claude/rotation-lanes/p/claim.sh add crates/b.rs >/dev/null)
 out=$(cd "$PW" && STUB_TRIGGER_RC=1 bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close with the trigger blocked: exit 1, no tag" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
 expect_has "clean commits and handoff: past step 0 to the merge" "$out" '^lane_close: 1 merge develop into lane/p$'
+expect_eq "precheck passing: it ran in the worktree, and the close went on" "$([ -e "$PW/.claude/precheck-ran" ] && echo yes):$(printf '%s\n' "$out" | grep -c '^lane_close: 0 precheck: ')" "yes:1"
 expect_has "lane_close blocked: the gate's lines are shown" "$out" 'TRIG-1 FAIL stub'
 expect_eq "lane_close blocked: the lane's claims stay" "$(cd "$PW" && bash .claude/rotation/claim.sh list | tail -1)" "claims: 2"
 rm -f "$PW/.claude/hook-ran"

@@ -13,7 +13,11 @@
 #                                         of ROTATION_HANDOFF_SECTIONS (rotation.conf, `|`-separated, default empty =
 #                                         not checked): a line `#`..`######` + space whose text contains the title,
 #                                         or a line starting `**` + the title (literal text, not a regexp); the
-#                                         missing ones are listed. Either finding = exit 1, nothing merged or tagged
+#                                         missing ones are listed. Either finding = exit 1, nothing merged or tagged.
+#                                         Then ROTATION_LANE_CLOSE_PRECHECK (rotation.conf, default empty = none):
+#                                         run with sh -c in the worktree, ROTATION_MERGE_BASE (the merge-base sha) and
+#                                         ROTATION_HEAD (HEAD's sha) in its environment; non-zero = exit 1, nothing
+#                                         merged or tagged, its last 20 output lines printed
 #   1. git merge <base>                  (--merge-from REF, else ROTATION_MERGE_FROM, else develop; message
 #                                         `merge: <base> into <branch>`) — the round
 #                                         closes on top of what the merging lane has, so the tag merges back cleanly
@@ -38,7 +42,7 @@
 #   --merge-from REF   the commit to merge this once (a round-end sha of the merging lane, say); the key in
 #                      rotation.conf stays the standing default and the conf file is not touched
 # exit: 0 tagged and announced · 1 a step failed (not a lane worktree on its branch, the tag exists, a trace
-#       in a commit message or a missing handoff section, the hook, the trigger gate) · 2 usage · 3 merge conflict
+#       in a commit message or a missing handoff section, the precheck, the hook, the trigger gate) · 2 usage · 3 merge conflict
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -98,6 +102,16 @@ if [ -n "$missing" ]; then
   printf '%s\n' "$missing" | sed 's/^/  /'
 fi
 [ "$found" -eq 0 ] || { echo "lane_close: trace check failed — nothing merged, no tag" >&2; exit 1; }
+if [ -n "${ROTATION_LANE_CLOSE_PRECHECK:-}" ]; then
+  echo "lane_close: 0 precheck: $ROTATION_LANE_CLOSE_PRECHECK"
+  pout=$(cd "$PROJECT_DIR" && ROTATION_MERGE_BASE="$mb" ROTATION_HEAD="$(g rev-parse HEAD)" sh -c "$ROTATION_LANE_CLOSE_PRECHECK" 2>&1)
+  prc=$?
+  if [ "$prc" -ne 0 ]; then
+    echo "lane_close: the precheck failed (exit $prc) — nothing merged, no tag; its last 20 lines:"
+    printf '%s\n' "$pout" | tail -20 | sed 's/^/  /'
+    exit 1
+  fi
+fi
 
 echo "lane_close: 1 merge $base into $branch"
 if ! g merge --no-edit -m "merge: $base into $branch" "$base"; then
