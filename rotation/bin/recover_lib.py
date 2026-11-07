@@ -614,6 +614,29 @@ def executor_of(agents):
     return live[-1] if live else None
 
 
+# an executor that records its end this soon after a blocked trigger ended its turn on the block (it reported the
+# round as still open), with its scene intact: it is continued, not replaced
+OPEN_AFTER_BLOCKED = 600
+
+
+def open_after_blocked(events, agents, round_ts):
+    """the round's executor whose agent.end came within OPEN_AFTER_BLOCKED seconds after the round's last
+    trigger.result, when that result was a block; None while an executor is still running, or when the last
+    trigger of the round passed"""
+    if running_executors(agents):
+        return None
+    i = last_index(events, 'trigger.result')
+    if i is None:
+        return None
+    t = events[i]
+    tts = t.get('ts') or 0
+    if tts < round_ts or (t.get('trig') or {}).get('result') != 'FAIL':
+        return None
+    ended = [a for a in agents if a['role'] == 'rotation' and a['inRound'] and a['status'] not in ('running', 'superseded')
+             and a.get('id') and tts <= (a.get('lastTs') or 0) <= tts + OPEN_AFTER_BLOCKED]
+    return dict(ended[-1], blockedAt=iso(tts)) if ended else None
+
+
 def session_state(ex):
     """whether this session can reach the executor by SendMessage. match: it was registered from this session;
     unknown: registered before the session was recorded (an older event), taken as reachable; no-session: the
@@ -679,6 +702,9 @@ def decide(scene):
     verdict = scene['session']['verdict']
     if ex and ex.get('id') and verdict in ('match', 'unknown'):
         return f"RESUME {ex['id']}"
+    ob = scene.get('openAfterBlocked')
+    if ob and session_state(ob)['verdict'] in ('match', 'unknown'):
+        return f"RESUME {ob['id']}"
     if scene['dirty']:
         return 'CLEAN main tree first'
     left = []
@@ -732,6 +758,7 @@ def build_scene(probe):
         'workers': worker_states(agents, now, events, rnd['ts']), 'workerStale': WORKER_STALE,
         'probe': run_probe() if probe else None,
     }
+    scene['openAfterBlocked'] = open_after_blocked(events, agents, rnd['ts'])
     scene['action'] = decide(scene)
     return scene
 
@@ -861,6 +888,10 @@ def print_scene(s):
             p(f"  {line}")
     else:
         p('remote probe: not run' if PROBE_CMD else 'remote probe: ROTATION_REMOTE_PROBE_CMD not set')
+    ob = s.get('openAfterBlocked')
+    if ob:
+        p(f"resumable: executor ended right after a blocked trigger; re-register with agent_log.sh start · {ob['name']}({ob['id']}) "
+          f"trigger.result FAIL {ob['blockedAt']}, agent.end {ob['lastAt']} · session {session_state(ob)['verdict']}")
     p(s['action'])
 
 

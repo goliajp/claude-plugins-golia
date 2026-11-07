@@ -1049,6 +1049,26 @@ expect_has "remote.end rc=0 status=ok stays ok" "$(tail -1 "$EV")" '"status":"ok
 run "$BIN/event.sh" remote.end remote.log=/x/d.log remote.status=fail remote.rc=int:75 >/dev/null 2>&1
 expect_has "remote.end rc=75 status=fail stays fail" "$(tail -1 "$EV")" '"status":"fail"'
 
+# an executor that ended right after a blocked trigger is resumable, not a respawn
+blocked_round() {  # blocked_round <trigger result> <agent.end seconds ago>
+  reset
+  ev 3000 agent.start "$(agent rotation-1 rotation '"id":"ag-77"'),\"managerSession\":\"sess-A\""
+  ev 1000 trigger.result "\"trig\":{\"result\":\"$1\",\"failed\":[\"TRIG-1\"],\"observed\":[]}"
+  ev "$2" agent.end "$(agent rotation-1 rotation '"id":"ag-77","status":"ok"')"
+}
+blocked_round FAIL 900
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_eq "agent.end 100 s after a blocked trigger: RESUME, not RESPAWN" "$(printf '%s\n' "$out" | tail -1)" "RESUME ag-77"
+expect_has "the page says why" "$out" "resumable: executor ended right after a blocked trigger; re-register with agent_log.sh start · rotation-1(ag-77)"
+blocked_round FAIL 300
+expect_not "agent.end 700 s after the block (> 10 min): not resumable" "$(action)" "RESUME"
+blocked_round PASS 900
+expect_not "after a trigger that passed: not resumable" "$(action)" "RESUME"
+SESSION=sess-B
+blocked_round FAIL 900
+expect_not "resumable only from the session that registered it" "$(action)" "RESUME"
+SESSION=sess-A
+
 echo
 echo "recover_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

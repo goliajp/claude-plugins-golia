@@ -11,6 +11,7 @@ The page: HEAD and the round's commit count; the main tree's uncommitted files; 
 | last line | when |
 |---|---|
 | `RESUME <agentId>` | an executor of this round is registered as running **with an id**, and the session that registered it equals this session's `CLAUDE_CODE_SESSION_ID` (an event older than the field counts as unknown and is offered as RESUME; the `executor session:` line says so) |
+| `RESUME <agentId>` (resumable) | no executor is running, the round's last `trigger.result` is a block, and the round's executor recorded its `agent.end` within 10 minutes after it, from this session (same rule as above): it reported the round as still open and ended its turn, with its scene intact. The `resumable:` line says so; re-register it with `agent_log.sh start` (same name, `ROTATION_AGENT_ID` = its id) and continue it rather than starting a new one |
 | `CLEAN main tree first` | no resumable executor and the main tree has uncommitted files |
 | `RESPAWN executor leftover=…` | no resumable executor and something is left: `executor:<name>(no-id)` / `(<id>,mismatch)` / `(<id>,no-session)`, `foreign-commits:N`, `worktree:<name>(+N[,dirty=M])`, `remote:<kind>@<sha>(<terminal>)`, a worker still registered, an executor that ended abnormally |
 | `IDLE` | nothing running, nothing left |
