@@ -26,13 +26,25 @@
 #                     manager.reason=quota|restart|wake; verify needs manager.checks=raw:{"1":"pass",…}
 #                     and manager.result=pass|fail. manager_log.sh builds these; call it, not this.
 #
-# exit: 0 recorded · 2 usage or a required key missing
+# With ROTATION_LANE unset, a call from inside a lane's tree is refused (autorun_lane_of_cwd: under
+# .claude/lanes/<lane>/, or a worktree on a lane's branch): there the first lane's log is what the links resolve
+# to, and the event would land in the wrong lane's chain. The lane's shim sets ROTATION_LANE.
+#
+# exit: 0 recorded · 2 usage, a required key missing, or a lane's tree without ROTATION_LANE
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
+. "$SCRIPT_DIR/lane_lib.sh"
 
 [ "$#" -ge 1 ] || { echo "usage: event.sh <kind> [key=value ...]" >&2; exit 2; }
+if [ -z "$ROTATION_LANE" ]; then
+  in_lane=$(autorun_lane_of_cwd)
+  if [ -n "$in_lane" ]; then
+    echo "event.sh: $PWD is lane $in_lane's tree and ROTATION_LANE is unset — run it through the lane's shim .claude/rotation-lanes/$in_lane/event.sh" >&2
+    exit 2
+  fi
+fi
 KIND=$1
 shift
 

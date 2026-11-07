@@ -50,6 +50,8 @@ The first lane's close must leave the lane's worktree alone: it is not one of th
 
 The manager runs the lane's shims for the lane: `manager_log.sh start`, `doctor.sh`, `recover.sh`, `watchdog.sh`, `report_save.sh` under `.claude/rotation-lanes/<lane>/`, one watchdog per lane. An executor that lives in a worktree is never continued by `SendMessage` (the worktree guard would move the sender's working directory); after a restart or a stall it is replaced from its branch, exactly like a worker.
 
+`event.sh` called with `ROTATION_LANE` unset from inside a lane's tree (a directory under `.claude/lanes/<lane>/`, or a worktree other than the main tree on the branch a lane sets as `ROTATION_BASE_BRANCH`) refuses with exit 2 and names the lane's shim: through the worktree's links the kernel would otherwise write the first lane's log.
+
 Every lane on one page, and one command for all of them:
 
 ```
