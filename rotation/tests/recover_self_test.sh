@@ -1037,6 +1037,18 @@ expect_has "that WAKE names the waited-on log" "$out" "WAKE remote=.claude/inbox
 expect_has "recover from another directory: satisfied" "$(cd "$TMP" && run "$BIN/recover.sh")" "satisfied=yes"
 rm -rf "$REPO/.claude"
 
+# a remote.end whose rc is a timeout (75, 124) is not recorded as ok
+reset
+err=$(run "$BIN/event.sh" remote.end remote.log=/x/a.log remote.status=ok remote.rc=int:75 2>&1 >/dev/null)
+expect_has "remote.end rc=75 status=ok: recorded as timeout" "$(tail -1 "$EV")" '"status":"timeout"'
+expect_has "… and stderr says so" "$err" "remote.rc=75 is a timeout, not ok"
+run "$BIN/event.sh" remote.end remote.log=/x/b.log remote.status=ok remote.rc=124 >/dev/null 2>&1
+expect_has "remote.end rc=124 (a string) status=ok: timeout" "$(tail -1 "$EV")" '"status":"timeout"'
+run "$BIN/event.sh" remote.end remote.log=/x/c.log remote.status=ok remote.rc=int:0 >/dev/null 2>&1
+expect_has "remote.end rc=0 status=ok stays ok" "$(tail -1 "$EV")" '"status":"ok"'
+run "$BIN/event.sh" remote.end remote.log=/x/d.log remote.status=fail remote.rc=int:75 >/dev/null 2>&1
+expect_has "remote.end rc=75 status=fail stays fail" "$(tail -1 "$EV")" '"status":"fail"'
+
 echo
 echo "recover_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

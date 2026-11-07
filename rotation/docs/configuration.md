@@ -18,6 +18,8 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_TRIG5_SAME_AXIS_MAX` | yes | — | consecutive same-axis rounds before `axes-review:` is required (template: 8) |
 | `ROTATION_TRIG5_BENCH_MAX_AGE_DAYS` | yes | — | how old the axis reading may be (template: 14) |
 | `ROTATION_TRIG8_GATE_COVERAGE` | no | `off` | `on` judges gate coverage; `off` prints no line. Switch on in a gap between rounds and note it in that round's handoff |
+| `ROTATION_PREFLIGHT_PER_COMMIT` | no | 0 | `1`: TRIG-10 FAILs while a first-parent non-merge commit of the session has no `preflight.end` whose `sha` equals it (prefix match); `0` prints no line |
+| `ROTATION_BATCH_MAX` | no | 0 | N > 0: TRIG-11 FAILs when more than N first-parent non-merge commits stand between two commits named by `gate.end` events (or between the session's start or its last gate and HEAD); `0` prints no line |
 | `ROTATION_TRIG9_VERDICT_RED` | no | `off` | `on`: the trigger FAILs while the round's filled close verdict has red, or has no filled verdict; `off` prints no line. Switch on in a gap |
 | `ROTATION_COLD_START_WINDOW` | no | 25 | commits TRIG-3 looks back on a cold start |
 | `ROTATION_AXES` | yes | — | the axis names, comma-separated |
