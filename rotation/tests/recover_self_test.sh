@@ -216,6 +216,42 @@ out=$(watch --wake 350); expect_eq "--wake 350: 400 s after a remote.end is a WA
 expect_has "the --wake WAKE counts from the remote.end" "$out" "WAKE remote.end kind=close.checks sha=abc"
 CONF="$TMP/wake.conf" watch --wake 1000 >/dev/null; expect_eq "ROTATION_WAKE_AFTER=1 in the conf is not read: --wake 1000 holds" "$?" "0"
 ROTATION_WAKE_AFTER=1 watch --wake 1000 >/dev/null 2>&1; expect_eq "ROTATION_WAKE_AFTER=1 in the environment is not read: --wake 1000 holds" "$?" "0"
+# an executor.waiting still unmet holds the remote.end WAKE: the executor started a job, then declared it waits
+# for a line in an inbox file; the job's remote.end is not what it waits for
+printf '# inbox\nother line\n' > "$TMP/inbox.md"
+plat_seq() {
+  reset
+  ev 2900 remote.start "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\"}"
+  ev 2886 executor.waiting "\"remote\":{\"log\":\"$TMP/inbox.md\",\"marker\":\"收尾重测.*已结束\"}"
+  ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+}
+plat_seq
+out=$(watch); rc=$?
+expect_eq "executor.waiting unmet, then a remote.end: no WAKE" "$rc" "0"
+expect_not "no remote.end WAKE line while the executor waits on its inbox marker" "$out" "WAKE remote.end"
+expect_has "recover: the waiting is still in force after the remote.end" "$(run "$BIN/recover.sh")" "still waiting=yes · satisfied=no"
+reset
+ev 2900 remote.start "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\"}"
+ev 2886 executor.waiting "\"remote\":{\"log\":\"$TMP/inbox.md\",\"marker\":\"x\",\"host\":\"h\"}"
+ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+expect_has "a remote marker whose probe fails is unknown" "$(GREP_CMD="$TMP/no-such-grep" run "$BIN/recover.sh" 2>/dev/null)" "satisfied=unknown"
+GREP_CMD="$TMP/no-such-grep" watch >/dev/null 2>&1
+expect_eq "executor.waiting that cannot be checked (satisfied unknown) also holds the remote.end WAKE" "$?" "0"
+plat_seq
+printf '收尾重测 r9 已结束\n' >> "$TMP/inbox.md"
+out=$(watch); expect_eq "the awaited inbox line appears: WAKE" "$?" "10"
+expect_has "that WAKE is for the waited-on marker" "$out" "WAKE remote=$TMP/inbox.md is done"
+printf '# inbox\nother line\n' > "$TMP/inbox.md"
+plat_seq
+ev 380 preflight.end '"preflight":{"result":"PASS"}'
+ev 350 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"def\",\"log\":\"$TMP/plat2.log\",\"status\":\"ok\"}"
+out=$(watch); expect_eq "an executor event after the executor.waiting ends it: a later remote.end WAKEs again" "$?" "10"
+expect_has "that WAKE is the remote.end one" "$out" "WAKE remote.end kind=close.plat-test sha=def"
+reset
+ev 2900 remote.start "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\"}"
+ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+out=$(watch); expect_eq "the same remote.end without an executor.waiting: WAKE" "$?" "10"
+expect_has "that WAKE names the ended job" "$out" "WAKE remote.end kind=close.plat-test sha=abc"
 
 reset
 ev 900 agent.start "$(agent w1 worker)"
@@ -706,6 +742,37 @@ expect_has "executor.waiting names it: the page says so" "$out" "the executor re
 expect_not "executor.waiting names it: no re-dispatch is prescribed" "$out" "dispatch a fresh isolated worker"
 watch >/dev/null; expect_eq "executor.waiting names it, 1500 s: no WAKE" "$?" "0"
 rm -rf "$TMP/cfg-b"
+# the open call queues for a shared host (ROTATION_WAIT_COMMANDS): waiting, not dead?, until 3 × the threshold
+tr_file_cmd() {  # tr_file_cmd <seconds ago> <command>: last entry an open Bash call running that command
+  local f="$TMP/cfg-b/projects/-x-repo/sess-A/subagents/agent-ag-w6.jsonl"
+  mkdir -p "$(dirname "$f")"
+  printf '%s\n' '{"type":"user","message":{"content":"go"}}' \
+    "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"tu2\",\"name\":\"Bash\",\"input\":{\"command\":\"$2\"}}]}}" > "$f"
+  touch -t "$(date -r "$((NOW - $1))" +%Y%m%d%H%M.%S)" "$f"
+}
+reset
+ev 3500 rotation.end '"trigger":"self"'
+ev 3450 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+ev 3400 agent.start "$(agent w6 worker '"id":"ag-w6"')"
+tr_file_cmd 1500 'cd /w && bash .dev/autorun/mini_slot.sh wait && cargo build -j 8'
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "wait command, 1500 s: waiting, with what it waits on" "$out" "waiting w6: its transcript has not been written for 25 min, and its open Bash call waits on mini_slot.sh wait (ROTATION_WAIT_COMMANDS)"
+expect_has "wait command: the command is shown" "$out" "· cd /w && bash .dev/autorun/mini_slot.sh wait && cargo build -j 8"
+expect_not "wait command: no dead? line" "$out" "dead? w6"
+expect_eq "wait command: --json state and match" "$(run "$BIN/recover.sh" --json --no-probe | python3 -c 'import json,sys; t=json.load(sys.stdin)["workers"][0]["transcript"]; print(t["state"], t["waitingOn"])')" "waiting mini_slot.sh wait"
+watch >/dev/null; expect_eq "wait command, 1500 s: no WAKE" "$?" "0"
+tr_file_cmd 3700 'cd /w && bash .dev/autorun/mini_slot.sh wait && cargo build -j 8'
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "wait command, ≥ 3 × the threshold: dead? again, saying what it waited on" "$out" "but its last Bash call (waiting on mini_slot.sh wait) has no result yet"
+watch >/dev/null; expect_eq "wait command, ≥ 3 × the threshold: a WAKE" "$?" "10"
+tr_file_cmd 1500 'bench-lock heavy cargo test'
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAIT_COMMANDS=\n' > "$TMP/nowait.conf"
+expect_has "default list: bench-lock heavy waits" "$(run "$BIN/recover.sh" --no-probe)" "waits on bench-lock heavy"
+expect_has "ROTATION_WAIT_COMMANDS set empty: no command counts, dead? (softened)" "$(CONF="$TMP/nowait.conf" run "$BIN/recover.sh" --no-probe)" "but its last Bash call has no result yet"
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WAIT_COMMANDS=my_queue\\.sh\n' > "$TMP/ownwait.conf"
+tr_file_cmd 1500 'sh my_queue.sh take'
+expect_has "a project's own list from the conf" "$(CONF="$TMP/ownwait.conf" run "$BIN/recover.sh" --no-probe)" "waits on my_queue.sh"
+rm -rf "$TMP/cfg-b"
 # the worker's own session on its start event wins over the executor's
 reset
 ev 3500 rotation.end '"trigger":"self"'
@@ -900,6 +967,138 @@ out=$(watch --stale 1000); expect_eq "the worker's transcript is 1100 s old: STA
 expect_has "the STALE line names the transcript as the last sign of life" "$out" "(last: transcript of w5 at "
 rm -rf "$TMP/cfg-b"
 watch >/dev/null; expect_eq "no transcript found and every event 2900 s old: STALE" "$?" "11"
+
+# ── windows: window.sh records them, status derives them from the events, the watchdog reads them ──
+win_round() {
+  reset
+  ev 3500 rotation.end '"trigger":"self"'
+  ev 3000 agent.start "$(agent rotation-1 rotation '"id":"ag-ex"'),\"managerSession\":\"sess-A\""
+}
+win_round
+out=$(run "$BIN/window.sh" status bench); rc=$?
+expect_eq "window: none recorded → status CLOSED, exit 1" "$rc:$out" "1:CLOSED name=bench"
+run "$BIN/window.sh" open bench --host mini --until +3600 --reason "r77 close bench" >/dev/null
+expect_eq "window: open is recorded" "$?" "0"
+out=$(run "$BIN/window.sh" status bench); rc=$?
+expect_eq "window: open → status exit 0" "$rc" "0"
+expect_has "window: status prints the OPEN line" "$out" "OPEN name=bench host=mini until=$(date -u -r $((NOW + 3600)) +%Y-%m-%dT%H)"
+expect_has "window: not overdue before its end" "$out" "overdue=no"
+expect_has "window.open carries the end as epoch and ISO, host and reason" "$(grep '"window.open"' "$EV")" '"host":"mini","reason":"r77 close bench"'
+expect_eq "window: status --json" "$(run "$BIN/window.sh" status bench --json | python3 -c 'import json,sys; w=json.load(sys.stdin); print(w["open"], w["host"], isinstance(w["until"], int), w["overdue"])')" "True mini True False"
+expect_eq "window: status without a name lists the open ones" "$(run "$BIN/window.sh" status)" "$out"
+out=$(run "$BIN/window.sh" open bench --until +7200); rc=$?
+expect_has "window: opening an open window records an extend" "$rc:$out" "0:window.sh: bench is already open; recording window.extend"
+expect_eq "window: one open, one extend on record" "$(grep -c '"window.open"' "$EV"):$(grep -c '"window.extend"' "$EV")" "1:1"
+expect_has "window: the extend kept the host" "$(run "$BIN/window.sh" status bench)" "host=mini"
+watch >/dev/null; expect_eq "window open, end ahead: watchdog OK" "$?" "0"
+run "$BIN/window.sh" extend bench --until "$((NOW - 400))" >/dev/null
+out=$(watch); rc=$?
+expect_eq "window end 400 s past, no extend or close since: WINDOW-OVERDUE (16)" "$rc" "16"
+expect_has "WINDOW-OVERDUE names the window and its host" "$out" "WINDOW-OVERDUE name=bench host=mini until=$(date -u -r $((NOW - 400)) +%Y-%m-%dT%H:%M:%SZ) passed"
+watch --wake 1000 >/dev/null; expect_eq "WINDOW-OVERDUE waits --wake past the end (--wake 1000: OK)" "$?" "0"
+expect_has "window: status says overdue" "$(run "$BIN/window.sh" status bench)" "overdue=yes"
+run "$BIN/window.sh" extend bench --until +600 >/dev/null
+watch >/dev/null; expect_eq "window extended past now: no WINDOW-OVERDUE" "$?" "0"
+run "$BIN/window.sh" close bench >/dev/null
+out=$(run "$BIN/window.sh" status bench); rc=$?
+expect_eq "window closed → status CLOSED, exit 1" "$rc:$out" "1:CLOSED name=bench"
+run "$BIN/window.sh" close bench >/dev/null 2>&1; expect_eq "window: closing a closed window exits 1" "$?" "1"
+run "$BIN/window.sh" extend bench --until +60 >/dev/null 2>&1; expect_eq "window: extending a closed window exits 1" "$?" "1"
+run "$BIN/window.sh" open bench >/dev/null 2>&1; expect_eq "window: open without --until is usage (exit 2)" "$?" "2"
+run "$BIN/window.sh" open bench --until tomorrow >/dev/null 2>&1; expect_eq "window: an unreadable --until is usage (exit 2)" "$?" "2"
+expect_eq "window: the closed window wrote nothing more" "$(grep -c '"kind":"window\.' "$EV")" "5"
+run "$BIN/event.sh" window.open window.name=x >/dev/null 2>&1; expect_eq "event.sh: window.open without window.until is refused" "$?" "2"
+run "$BIN/event.sh" executor.waiting waiting.window=bench >/dev/null; expect_eq "event.sh: executor.waiting with waiting.window alone is accepted" "$?" "0"
+
+# executor.waiting waiting.window=<name>: no WAKE and no dead? worker while the window is open
+win_wait() {  # win_wait <window open|closed seconds ago, or "open">
+  win_round
+  ev 2900 agent.start "$(agent w5 worker '"id":"ag-w5"')"
+  ev 2800 window.open "\"window\":{\"name\":\"bench\",\"host\":\"mini\",\"until\":$((NOW + 3600)),\"untilAt\":\"x\"}"
+  ev 2700 executor.waiting '"waiting":{"window":"bench"}'
+  ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+}
+win_wait
+tr_file "$TMP/cfg-b" sess-A ag-w5 1500
+out=$(watch); rc=$?
+expect_eq "executor.waiting window=bench, window open: remote.end 400 s ago is no WAKE, the silent worker no dead?" "$rc" "0"
+expect_not "no WAKE line while the window is open" "$out" "WAKE"
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_has "recover: the silent worker waits with the window" "$out" "waiting w5: its transcript has not been written for 25 min, and the executor waits for window bench, still open"
+expect_not "recover: no dead? line for it" "$out" "dead? w5"
+expect_has "recover: the waiting names the window" "$out" "for window bench (open) · still waiting=yes · satisfied=no"
+expect_has "recover: the open windows are listed" "$out" "OPEN name=bench host=mini"
+expect_eq "recover --json: the worker's state is waiting" "$(run "$BIN/recover.sh" --json --no-probe | python3 -c 'import json,sys; w=json.load(sys.stdin)["workers"][0]["transcript"]; print(w["state"], w["window"])')" "waiting bench"
+watch --stale 1000 >/dev/null; expect_eq "an open window the executor waits on is a sign of life until its end: no STALE" "$?" "0"
+rm -rf "$TMP/cfg-b"
+# closed: the close satisfies the waiting, and the --wake clock runs from it
+win_wait
+ev 100 window.close '"window":{"name":"bench"}'
+out=$(watch); rc=$?
+expect_eq "window closed 100 s ago (< --wake 300): no WAKE yet" "$rc" "0"
+win_wait
+ev 350 window.close '"window":{"name":"bench"}'
+out=$(watch); rc=$?
+expect_eq "window closed 350 s ago and the executor silent: WAKE" "$rc" "10"
+expect_has "that WAKE is the waiting's" "$out" "WAKE window=bench is done"
+expect_has "recover: the waiting is satisfied" "$(run "$BIN/recover.sh" --no-probe)" "for window bench (closed) · still waiting=yes · satisfied=yes"
+# another lane's window: read for the waiting, never reported overdue here
+win_round
+mkdir -p "$REPO/.claude/rotation-state"
+printf '.claude/\n' >> "$REPO/.git/info/exclude"
+printf '{"at":"x","ts":%s,"kind":"window.open","rotationId":"r-1","head":"x","window":{"name":"bench","host":"mini","until":%s}}\n' \
+  "$((NOW - 2000))" "$((NOW - 900))" > "$REPO/.claude/rotation-state/events.jsonl"
+ev 1500 executor.waiting '"waiting":{"window":"bench"}'
+out=$(watch); rc=$?
+expect_eq "a window opened in the first lane's log holds this lane's waiting; overdue there is not this lane's" "$rc" "0"
+expect_has "status reads every lane's log" "$(run "$BIN/window.sh" status bench)" "OPEN name=bench host=mini"
+rm -rf "$REPO/.claude"
+
+# a relative remote.log of a local job is read from the project root, whatever directory the watchdog runs in
+win_round
+mkdir -p "$REPO/.claude"
+printf '# inbox\n' > "$REPO/.claude/inbox.md"
+ev 1000 executor.waiting '"remote":{"log":".claude/inbox.md","marker":"bench window .* closed"}'
+out=$(cd "$TMP" && watch); rc=$?
+expect_eq "relative remote.log, marker not there yet: no WAKE (run from another directory)" "$rc" "0"
+printf 'bench window r9 closed\n' >> "$REPO/.claude/inbox.md"
+out=$(cd "$TMP" && watch); rc=$?
+expect_eq "relative remote.log, the marker appears: WAKE from another directory" "$rc" "10"
+expect_has "that WAKE names the waited-on log" "$out" "WAKE remote=.claude/inbox.md is done"
+expect_has "recover from another directory: satisfied" "$(cd "$TMP" && run "$BIN/recover.sh")" "satisfied=yes"
+rm -rf "$REPO/.claude"
+
+# a remote.end whose rc is a timeout (75, 124) is not recorded as ok
+reset
+err=$(run "$BIN/event.sh" remote.end remote.log=/x/a.log remote.status=ok remote.rc=int:75 2>&1 >/dev/null)
+expect_has "remote.end rc=75 status=ok: recorded as timeout" "$(tail -1 "$EV")" '"status":"timeout"'
+expect_has "… and stderr says so" "$err" "remote.rc=75 is a timeout, not ok"
+run "$BIN/event.sh" remote.end remote.log=/x/b.log remote.status=ok remote.rc=124 >/dev/null 2>&1
+expect_has "remote.end rc=124 (a string) status=ok: timeout" "$(tail -1 "$EV")" '"status":"timeout"'
+run "$BIN/event.sh" remote.end remote.log=/x/c.log remote.status=ok remote.rc=int:0 >/dev/null 2>&1
+expect_has "remote.end rc=0 status=ok stays ok" "$(tail -1 "$EV")" '"status":"ok"'
+run "$BIN/event.sh" remote.end remote.log=/x/d.log remote.status=fail remote.rc=int:75 >/dev/null 2>&1
+expect_has "remote.end rc=75 status=fail stays fail" "$(tail -1 "$EV")" '"status":"fail"'
+
+# an executor that ended right after a blocked trigger is resumable, not a respawn
+blocked_round() {  # blocked_round <trigger result> <agent.end seconds ago>
+  reset
+  ev 3000 agent.start "$(agent rotation-1 rotation '"id":"ag-77"'),\"managerSession\":\"sess-A\""
+  ev 1000 trigger.result "\"trig\":{\"result\":\"$1\",\"failed\":[\"TRIG-1\"],\"observed\":[]}"
+  ev "$2" agent.end "$(agent rotation-1 rotation '"id":"ag-77","status":"ok"')"
+}
+blocked_round FAIL 900
+out=$(run "$BIN/recover.sh" --no-probe)
+expect_eq "agent.end 100 s after a blocked trigger: RESUME, not RESPAWN" "$(printf '%s\n' "$out" | tail -1)" "RESUME ag-77"
+expect_has "the page says why" "$out" "resumable: executor ended right after a blocked trigger; re-register with agent_log.sh start · rotation-1(ag-77)"
+blocked_round FAIL 300
+expect_not "agent.end 700 s after the block (> 10 min): not resumable" "$(action)" "RESUME"
+blocked_round PASS 900
+expect_not "after a trigger that passed: not resumable" "$(action)" "RESUME"
+SESSION=sess-B
+blocked_round FAIL 900
+expect_not "resumable only from the session that registered it" "$(action)" "RESUME"
+SESSION=sess-A
 
 echo
 echo "recover_self_test: $pass passed, $fail failed"

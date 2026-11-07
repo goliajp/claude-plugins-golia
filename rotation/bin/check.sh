@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# rotation kernel — INV-1..5 pre-act gate.
+# rotation kernel — INV-1..6 pre-act gate.
 #
 # Run by the Stop hook at every turn end while a rotation intent is
 # pending (.claude/autorun-intent): green consumes the intent, red keeps
@@ -216,12 +216,80 @@ check_inv5() {
   emit INV-5 PASS "rotation_id $ROTATION_ID unique"
 }
 
+# ── INV-6 — no agent worktree outlives its agent ────────────────────────
+# Why: the executor's "worktrees removed" in its report is its own word.
+# A worktree at .claude/worktrees/agent-* of this tree is an agent's; there
+# may be no more of them than agents still open: an agent.start with no
+# later agent.end of the same name, started since the previous row (when
+# the check runs after the trigger that is the round that just closed, and
+# the new one). ROTATION_WORKTREE_CHECK=0 (rotation.conf) skips it.
+check_inv6() {
+  if [ "${ROTATION_WORKTREE_CHECK:-1}" = 0 ]; then
+    emit INV-6 SKIP "ROTATION_WORKTREE_CHECK=0"
+    return
+  fi
+  local out rc
+  out=$(python3 - "$PROJECT_DIR" "$EVENTS_LOG" "$ROTATIONS_LOG" <<'PY'
+import json, os, subprocess, sys
+repo, events, rows_path = sys.argv[1:4]
+def jsonl(path):
+    try:
+        with open(path) as f:
+            for l in f:
+                l = l.strip()
+                if l:
+                    try:
+                        yield json.loads(l)
+                    except json.JSONDecodeError:
+                        pass
+    except FileNotFoundError:
+        return
+rows = list(jsonl(rows_path))
+since = (rows[-2].get('ts') or 0) if len(rows) >= 2 else 0
+open_agents = {}
+for e in jsonl(events):
+    k = e.get('kind')
+    name = (e.get('agent') or {}).get('name')
+    if k == 'agent.start' and (e.get('ts') or 0) >= since:
+        open_agents[name] = (e.get('agent') or {}).get('worktree')
+    elif k == 'agent.end':
+        open_agents.pop(name, None)
+r = subprocess.run(['git', '-C', repo, 'worktree', 'list', '--porcelain'], capture_output=True, text=True)
+if r.returncode != 0:
+    print('git worktree list failed')
+    sys.exit(2)
+home = os.path.realpath(os.path.join(repo, '.claude', 'worktrees'))
+trees = [l[len('worktree '):] for l in r.stdout.splitlines() if l.startswith('worktree ')]
+trees = [t for t in trees if os.path.dirname(os.path.realpath(t)) == home and os.path.basename(t).startswith('agent-')]
+owned = {os.path.basename(w.rstrip('/')) for w in open_agents.values() if w}
+n, m = len(trees), len(open_agents)
+if n <= m:
+    print(f"agent worktrees {n} <= open agents {m}")
+    sys.exit(0)
+extra = [t for t in trees if os.path.basename(t) not in owned] or trees
+print(f"agent worktrees {n} > open agents {m}: remove the worktrees of ended agents")
+for t in extra:
+    print(f"  {t}")
+sys.exit(1)
+PY
+)
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    emit INV-6 PASS "$out"
+  else
+    emit INV-6 FAIL "$(printf '%s\n' "$out" | head -1)"
+    printf '%s\n' "$out" | tail -n +2 >&2
+    failed+=(INV-6)
+  fi
+}
+
 # ── run ─────────────────────────────────────────────────────────────────
 check_inv1
 check_inv2
 check_inv3
 check_inv4
 check_inv5
+check_inv6
 
 if [ ${#failed[@]} -eq 0 ]; then
   exit 0

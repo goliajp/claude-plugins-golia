@@ -30,6 +30,11 @@ ROTATION_TRIG8_GATE_COVERAGE=off
 # TRIG-9: the round's filled close verdict (ROTATION_VERDICT_DIR/<rid>.verdict.json) must have no red; no verdict,
 # or one never filled, fails too. off emits no line; on judges it (switch it on in a gap between rounds)
 ROTATION_TRIG9_VERDICT_RED=off
+# TRIG-10: 1 = every first-parent commit of the session needs a preflight.end event carrying its sha; 0 emits no line
+ROTATION_PREFLIGHT_PER_COMMIT=0
+# TRIG-11: N > 0 = no more than N first-parent commits between two gate.end events (or from the last one to HEAD);
+# 0 emits no line
+ROTATION_BATCH_MAX=0
 # TRIG-5: consecutive same-axis rotations before an axes-review is required, and how old its reading may be
 ROTATION_TRIG5_SAME_AXIS_MAX=8
 ROTATION_TRIG5_BENCH_MAX_AGE_DAYS=14
@@ -56,6 +61,11 @@ ROTATION_CLOSE_RULES=.claude/rotation/close_rules.tsv
 # recover / watchdog: seconds a worker still registered as running may go without its transcript being written
 # before it is `dead?` on the recover page and a WAKE for the watchdog. Kernel default 1200
 ROTATION_WORKER_STALE=1200
+# INV-6: no more worktrees at .claude/worktrees/agent-* than agents still open; 0 skips it. Kernel default 1
+# ROTATION_WORKTREE_CHECK=1
+# a silent worker whose transcript ends on an unanswered call matching this Python regexp is `waiting` (a queue for a
+# shared host), not `dead?`, until 3 × ROTATION_WORKER_STALE; set and empty = no command counts. Kernel default shown
+# ROTATION_WAIT_COMMANDS=bench-lock (bench|heavy)|mini_slot\.sh wait|mini_heavy\.sh|firefly_slot\.sh wait
 # the close planner's message table (the verdict's language); kernel default is English
 # ROTATION_MESSAGES=.claude/rotation/messages.conf
 
@@ -73,3 +83,10 @@ ROTATION_WORKER_STALE=1200
 # ROTATION_MERGE_FROM=develop
 # ROTATION_INBOX_FILE=.claude/autorun-inbox.md
 # ROTATION_INBOX_INSERT_LINE=65
+# lanes: lane_close.sh refuses a commit of the round whose message has a line matching this (or
+# ROTATION_AGENT_ORIGIN_PATTERN), and a handoff missing any of these `|`-separated section titles (empty = not checked)
+# ROTATION_TRACE_PATTERN=Co-Authored-By|Generated with|generated with|🤖|[Cc]laude
+# ROTATION_HANDOFF_SECTIONS=
+# lanes: a project check lane_close.sh runs after the trace check, before merging (sh -c in the worktree, with
+# ROTATION_MERGE_BASE and ROTATION_HEAD set); non-zero = nothing merged, no tag. Empty = none
+# ROTATION_LANE_CLOSE_PRECHECK=

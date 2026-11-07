@@ -18,9 +18,12 @@
 #   init.sh --from     copies a lane's three files with that lane's name replaced in every spelling that
 #                      names it, prints the count; an unknown source lane is exit 1, --from without --lane exit 2
 #   lanes.sh           one line per lane (first lane first, named), branch / rid / executors; --json an array
+#   claim.sh           add / list / drop in the shared claims.jsonl; another lane's overlapping claim is exit 3 and
+#                      both stay in force; drop without a glob drops the lane's round; lane_close drops the round's
 #   --all              doctor / recover / watchdog run every lane under `== lane <name> ==`, exit = the highest
 #   lane_close.sh      in the lane's worktree: merge the base, the hook, the trigger (stubbed), the tag, the inbox
-#                      row, lane.ready; refused off the lane's branch; a blocked trigger tags nothing; a conflict
+#                      row, lane.ready; refused off the lane's branch; a failing ROTATION_LANE_CLOSE_PRECHECK stops it
+#                      before the merge (exit 1, its last 20 lines); a blocked trigger tags nothing; a conflict
 #                      exits 3 naming the file
 #   lane_merge.sh      merge.start / merge.end around a --no-ff merge of the tag; a conflict exits 3 and records
 #                      status conflict; --returned records lane.returned and writes the inbox row
@@ -88,7 +91,7 @@ expect_eq "main event: in the main lane's log, no lane field" "$(grep -c 'in-mai
 # ── hooks: the main lane's hook serves the lanes ─────────────────────────
 henv() { ( cd "$REPO" && env CLAUDE_PLUGIN_ROOT="$ROOT" CLAUDE_PROJECT_DIR="$REPO" CLAUDE_CODE_SESSION_ID=sess-L "$@" ); }
 stop_payload() { printf '{"session_id":"s1","hook_event_name":"Stop","stop_hook_active":false}'; }
-# the lane's intent with a handoff that passes INV-1..5, the main lane with none
+# the lane's intent with a handoff that passes INV-1..6, the main lane with none
 printf 'r-lane-1\n' > "$LANE/autorun-intent"
 printf '# lane handoff\n\nHEAD %s\n\n## rotate-trigger\n\naxis: A\nclosed: %s first\ngate: 1/0/0\n' "$SHA" "$SHA" > "$LANE/handoff.md"
 printf '{"rotationId":"r-lane-1","ts":1,"trigger":"self","project":"repo","prevHead":"%s"}\n' "$SHA" > "$REPO/.claude/rotation-state/lanes/b/rotations.jsonl"
@@ -158,6 +161,22 @@ printf 'export ROTATION_BASE_BRANCH=lane/b\n' >> "$LANE/project.sh"
 echo c > "$REPO/c.txt"; g add -A; g commit -q -m "feat: main lane moves on"
 MSHA=$(g rev-parse --short HEAD)
 expect_eq "autorun_git_head in lane mode from the main tree: the lane branch's head" "$(cd "$REPO" && ROTATION_LANE=b bash -c '. .claude/rotation/lib.sh; autorun_git_head')" "$WSHA"
+
+# ── event.sh refuses to write the first lane's log from inside a lane's tree ─
+out=$(cd "$WT" && bash .claude/rotation/event.sh harness.note note.kind=guard-wt 2>&1); rc=$?
+expect_eq "event.sh in lane b's worktree without ROTATION_LANE: refused (exit 2)" "$rc" 2
+expect_has "the refusal names the lane's shim" "$out" "run it through the lane's shim .claude/rotation-lanes/b/event.sh"
+expect_eq "nothing written to either log" "$(grep -c 'guard-wt' "$MEV" "$LEV" | awk -F: '{s += $2} END {print s}')" 0
+out=$(cd "$WT" && bash "$KBIN/event.sh" harness.note note.kind=guard-wt 2>&1); rc=$?
+expect_eq "the kernel's event.sh called by path from the worktree: refused too" "$rc" 2
+mkdir -p "$REPO/.claude/lanes/b/sub"
+out=$(cd "$REPO/.claude/lanes/b/sub" && bash "$KBIN/event.sh" harness.note note.kind=guard-dir 2>&1); rc=$?
+expect_eq "a directory under .claude/lanes/b/: refused" "$rc:$(grep -c 'guard-dir' "$MEV")" "2:0"
+rm -rf "$REPO/.claude/lanes"
+(cd "$WT" && bash .claude/rotation-lanes/b/event.sh harness.note note.kind=guard-shim >/dev/null 2>&1); rc=$?
+expect_eq "through the lane's shim from the worktree: written to the lane's log" "$rc:$(grep -c 'guard-shim' "$LEV")" "0:1"
+(cd "$REPO" && bash .claude/rotation/event.sh harness.note note.kind=guard-main >/dev/null 2>&1); rc=$?
+expect_eq "the first lane's shim from the main tree: written to its log" "$rc:$(grep -c 'guard-main' "$MEV")" "0:1"
 expect_eq "autorun_git_head in the main lane: HEAD" "$(cd "$REPO" && bash -c '. .claude/rotation/lib.sh; autorun_git_head')" "$MSHA"
 printf '{"rotationId":"r-7-beef","ts":1,"trigger":"self","project":"repo","prevHead":"%s"}\n' "$WSHA" > "$REPO/.claude/rotation-state/lanes/b/rotations.jsonl"
 printf 'rotation=r-7-beef executor=x id=ag-x since=t session=s\n' > "$REPO/.claude/rotation-state/lanes/b/manager.active"
@@ -200,7 +219,13 @@ expect_eq "init: the new commands have shims" \
 
 # ── K3: lanes.sh and the --all modes ────────────────────────────────────
 out=$(cd "$REPO" && bash .claude/rotation/lanes.sh 2>&1); rc=$?
-expect_eq "lanes.sh: exit 0, one line per lane, the first lane first under its name" "$rc:$(printf '%s\n' "$out" | awk '{print $1}' | tr '\n' ' ')" "0:substrate b c d q s "
+expect_eq "lanes.sh: exit 0, one line per lane, the first lane first under its name, then the windows and claims" "$rc:$(printf '%s\n' "$out" | awk '{print $1}' | tr '\n' ' ')" "0:substrate b c d q s windows: claims: "
+expect_eq "lanes.sh: no window open" "$(printf '%s\n' "$out" | grep '^windows:')" "windows: none open"
+expect_eq "lanes.sh: no claim" "$(printf '%s\n' "$out" | tail -1)" "claims: 0"
+(cd "$REPO" && bash .claude/rotation-lanes/b/window.sh open bench --host mini --until +600 >/dev/null)
+out=$(cd "$REPO" && bash .claude/rotation/lanes.sh 2>&1)
+expect_has "lanes.sh: a window lane b opened shows on the windows line" "$(printf '%s\n' "$out" | grep '^windows:')" "windows: bench\\(host=mini until="
+(cd "$REPO" && bash .claude/rotation-lanes/b/window.sh close bench >/dev/null)
 expect_has "lanes.sh: lane b's branch and rid" "$(printf '%s\n' "$out" | grep '^b ')" 'branch=lane/b rid=r-[0-9a-z-]+ head=[0-9a-f]+ '
 expect_has "lanes.sh: lane c's running executor and its manager marker" "$(printf '%s\n' "$out" | grep '^c ')" 'last=rotation\.start@[0-9T:Z-]+ executors=1:c-01\(ag-c1\) manager=yes$'
 expect_has "lanes.sh: the first lane has no executor" "$(printf '%s\n' "$out" | grep '^substrate ')" 'executors=0 manager=no$'
@@ -208,6 +233,46 @@ js=$(cd "$REPO" && bash .claude/rotation/lanes.sh --json | python3 -c 'import js
 expect_eq "lanes.sh --json: an array, the first lane's value empty, executors and branch carried" "$js" "6 True ag-c1 lane/b"
 out=$(cd "$REPO" && bash .claude/rotation/lanes.sh --bogus 2>&1); rc=$?
 expect_eq "lanes.sh: an unknown option is usage (exit 2)" "$rc" 2
+
+# ── H7: path claims shared by every lane ────────────────────────────────
+CLF="$REPO/.claude/rotation-state/claims.jsonl"
+out=$(cd "$REPO" && bash .claude/rotation-lanes/b/claim.sh add 'crates/core/*' --reason "fix tdz" 2>&1); rc=$?
+expect_eq "claim add: exit 0, no other lane's claim" "$rc" 0
+expect_eq "claim add: one claim.add line in the shared file, lane and glob" \
+  "$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1])]; print(len(r), r[0]["kind"], r[0]["lane"], r[0]["glob"], r[0]["reason"], bool(r[0]["rid"]), type(r[0]["ts"]).__name__)' "$CLF")" \
+  "1 claim.add b crates/core/* fix tdz True int"
+out=$(cd "$REPO" && bash .claude/rotation-lanes/b/claim.sh add 'crates/core/*' --reason again 2>&1); rc=$?
+expect_eq "claim add: the same lane claiming an overlapping glob again is no conflict" "$rc" 0
+out=$(cd "$REPO" && bash .claude/rotation-lanes/c/claim.sh add web/app.ts --reason ui 2>&1); rc=$?
+expect_eq "claim add: a disjoint glob of another lane, exit 0" "$rc" 0
+out=$(cd "$REPO" && bash .claude/rotation-lanes/c/claim.sh add crates/core/src/tdz.rs --reason "same bug" 2>&1); rc=$?
+expect_eq "claim add: a path the other lane's glob matches is a conflict (exit 3)" "$rc" 3
+expect_has "claim add: the conflict names the other lane's claim" "$out" '^CONFLICT lane=b glob=crates/core/\* reason=again since=[0-9T:Z-]+$'
+out=$(cd "$REPO" && bash .claude/rotation/claim.sh add 'crates/*' 2>&1); rc=$?
+expect_eq "claim add: a glob matching the others' literals conflicts with both (the first lane, named)" "$rc:$(printf '%s\n' "$out" | grep -c '^CONFLICT')" "3:2"
+out=$(cd "$REPO" && bash .claude/rotation-lanes/c/claim.sh add 'crates/*/x.rs' 2>&1); rc=$?
+expect_eq "claim add: crates/*/x.rs against crates/core/* — neither matches the other's literal, no conflict with b" \
+  "$rc:$(printf '%s\n' "$out" | grep -c 'lane=b')" "3:0"
+out=$(cd "$REPO" && bash .claude/rotation/claim.sh list 2>&1); rc=$?
+expect_eq "claim list: every claim in force, both sides of a conflict recorded" "$rc:$(printf '%s\n' "$out" | awk '{print $1 ":" $2}' | tr '\n' ' ')" \
+  "0:b:crates/core/* c:web/app.ts c:crates/core/src/tdz.rs substrate:crates/* c:crates/*/x.rs claims::5 "
+expect_eq "claim list: last line the count" "$(printf '%s\n' "$out" | tail -1)" "claims: 5"
+expect_eq "claim list GLOB: only the overlapping ones" "$(cd "$REPO" && bash .claude/rotation/claim.sh list crates/core/src/tdz.rs | tail -1)" "claims: 3"
+expect_eq "lanes.sh: the claims line counts by lane" "$(cd "$REPO" && bash .claude/rotation/lanes.sh | tail -1)" "claims: 5 (b:1, c:3, substrate:1)"
+out=$(cd "$REPO" && bash .claude/rotation-lanes/c/claim.sh drop web/app.ts 2>&1); rc=$?
+expect_eq "claim drop GLOB: exit 0, gone from the list" "$rc:$(cd "$REPO" && bash .claude/rotation/claim.sh list | grep -c web/app.ts)" "0:0"
+out=$(cd "$REPO" && bash .claude/rotation-lanes/c/claim.sh drop web/app.ts 2>&1); rc=$?
+expect_eq "claim drop GLOB: no such claim in force is exit 1" "$rc" 1
+out=$(cd "$REPO" && bash .claude/rotation-lanes/b/claim.sh drop 'crates/*' 2>&1); rc=$?
+expect_eq "claim drop GLOB: another lane's claim is not this lane's to drop (exit 1)" "$rc" 1
+out=$(cd "$REPO" && bash .claude/rotation-lanes/c/claim.sh drop 2>&1); rc=$?
+expect_eq "claim drop without a glob: every claim of the lane's round" "$rc:$(cd "$REPO" && bash .claude/rotation/claim.sh list | awk '{print $1}' | tr '\n' ' ')" "0:b substrate claims: "
+expect_eq "claim file: append-only (adds and drops are lines)" "$(grep -c '"kind":"claim.add"' "$CLF"):$(grep -c '"kind":"claim.drop"' "$CLF")" "6:3"
+out=$(cd "$REPO" && bash .claude/rotation/claim.sh add 2>&1); rc=$?
+expect_eq "claim add without a glob: usage (exit 2)" "$rc" 2
+out=$(cd "$REPO" && bash .claude/rotation/claim.sh drop x --rid r-1 2>&1); rc=$?
+expect_eq "claim drop GLOB --rid: usage (exit 2)" "$rc" 2
+rm -f "$CLF"
 
 out=$(cd "$REPO" && bash .claude/rotation/doctor.sh --all 2>&1); rc=$?
 expect_eq "doctor --all: one header per lane" "$(printf '%s\n' "$out" | grep -c '^== lane ')" 6
@@ -276,9 +341,48 @@ out=$(cd "$P" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close off the lane's branch (main tree on develop): exit 1" "$rc" 1
 out=$(cd "$PW" && bash .claude/rotation/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close through the first lane's shim: usage (exit 2)" "$rc" 2
+# step 0: the trace check refuses before anything is merged
+PHEAD=$(gw rev-parse HEAD)
+echo t1 > "$PW/t1.txt"; gw add -A; gw commit -q -m "fix: picked from a worker" -m "Agent-Origin: w-pick"
+TSHA=$(gw rev-parse --short=9 HEAD)
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "trace check: an Agent-Origin trailer is refused (exit 1, no tag)" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "trace check: the commit is named" "$out" "^lane_close: commit $TSHA carries a trace:$"
+expect_has "trace check: the trailer line is shown" "$out" '^  3:Agent-Origin: w-pick$'
+expect_not "trace check: nothing merged" "$out" '^lane_close: 1 merge'
+expect_eq "trace check: the lane's HEAD is unchanged" "$(gw rev-parse --short=9 HEAD)" "$TSHA"
+gw reset -q --hard "$PHEAD"
+echo t2 > "$PW/t2.txt"; gw add -A; gw commit -q -m "feat: lane thing" -m "Generated with some tool"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "trace check: 'Generated with' in a message is refused (exit 1)" "$rc" 1
+expect_has "trace check: that line is shown" "$out" '^  3:Generated with some tool$'
+gw reset -q --hard "$PHEAD"
+printf 'ROTATION_HANDOFF_SECTIONS=架构影响|rotate-trigger|下一步\n' >> "$PL/rotation.conf"
+printf '# lane handoff\n\n## rotate-trigger\n\naxis: A\n' > "$PL/handoff.md"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "handoff check: missing sections are refused (exit 1, no tag)" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "handoff check: the missing titles are listed" "$(printf '%s\n' "$out" | grep -A2 'lacks section')" '^  架构影响$'
+expect_has "handoff check: every missing title, not just the first" "$out" '^  下一步$'
+expect_not "handoff check: a present title is not listed" "$out" '^  rotate-trigger$'
+expect_not "handoff check: nothing merged" "$out" '^lane_close: 1 merge'
+printf '# lane handoff\n\n### 本轮的架构影响\n\nnone\n\n## rotate-trigger\n\naxis: A\n\n**下一步**: x\n' > "$PL/handoff.md"
+# the project's precheck: after the trace check, before the merge, with the merge base and HEAD
+printf '%s\n' 'ROTATION_LANE_CLOSE_PRECHECK=for i in $(seq 1 25); do echo l$i; done; echo "mb=$ROTATION_MERGE_BASE head=$ROTATION_HEAD"; exit 4' >> "$PL/rotation.conf"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "precheck failing: exit 1, no tag" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "precheck failing: its exit code" "$out" '^lane_close: the precheck failed \(exit 4\)'
+expect_has "precheck: the merge base and HEAD are in its environment" "$out" "^  mb=$(gw merge-base develop HEAD) head=$(gw rev-parse HEAD)\$"
+expect_eq "precheck failing: only its last 20 lines" "$(printf '%s\n' "$out" | grep -cE '^  l[0-9]+$'):$(printf '%s\n' "$out" | grep -c '^  l6$'):$(printf '%s\n' "$out" | grep -c '^  l7$')" "19:0:1"
+expect_not "precheck failing: nothing merged" "$out" '^lane_close: 1 merge'
+expect_eq "precheck failing: the lane's HEAD is unchanged" "$(gw rev-parse HEAD)" "$(gw rev-parse "$PHEAD")"
+printf '%s\n' 'ROTATION_LANE_CLOSE_PRECHECK=test "$ROTATION_MERGE_BASE" = "$(git merge-base develop HEAD)" && touch .claude/precheck-ran' >> "$PL/rotation.conf"
+(cd "$PW" && bash .claude/rotation-lanes/p/claim.sh add 'crates/a/*' --reason w1 >/dev/null && bash .claude/rotation-lanes/p/claim.sh add crates/b.rs >/dev/null)
 out=$(cd "$PW" && STUB_TRIGGER_RC=1 bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close with the trigger blocked: exit 1, no tag" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "clean commits and handoff: past step 0 to the merge" "$out" '^lane_close: 1 merge develop into lane/p$'
+expect_eq "precheck passing: it ran in the worktree, and the close went on" "$([ -e "$PW/.claude/precheck-ran" ] && echo yes):$(printf '%s\n' "$out" | grep -c '^lane_close: 0 precheck: ')" "yes:1"
 expect_has "lane_close blocked: the gate's lines are shown" "$out" 'TRIG-1 FAIL stub'
+expect_eq "lane_close blocked: the lane's claims stay" "$(cd "$PW" && bash .claude/rotation/claim.sh list | tail -1)" "claims: 2"
 rm -f "$PW/.claude/hook-ran"
 out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
 TAGP=lane/p/r-1999999999-0001
@@ -288,6 +392,9 @@ expect_eq "lane_close: the tag is the closed round's, at the worktree's HEAD" "$
 expect_eq "lane_close: develop was merged into the lane (two parents, the message)" \
   "$(gw log -1 --format='%p|%s' "$TAGP" | awk -F'|' '{print split($1, a, " ") "|" $2}')" "2|merge: develop into lane/p"
 expect_eq "lane_close: the hook ran in the worktree" "$([ -e "$PW/.claude/hook-ran" ] && echo yes)" yes
+expect_eq "lane_close: the round's claims are dropped, reason lane-close" \
+  "$(cd "$P" && bash .claude/rotation/claim.sh list | tail -1):$(grep -c '"kind":"claim.drop".*"reason":"lane-close"' "$P/.claude/rotation-state/claims.jsonl")" "claims: 0:2"
+expect_has "lane_close: says so" "$out" '^lane_close: 4 claim.sh: p dropped 2 claim\(s\) of round r-1999999999-0001$'
 expect_eq "lane_close: the inbox row at line 3 (the main tree's inbox, through the link)" "$(sed -n 3p "$P/.claude/autorun-inbox.md")" \
   "| $(date +%F) | $TAGP ready · 3 commit · gate 7/0/1 | .claude/rotation-lanes/p/handoff.md |"
 expect_eq "lane_close: the rest of the inbox is kept" "$(sed -n '1p;4p;6p' "$P/.claude/autorun-inbox.md" | tr '\n' '~')" "# inbox~| date | rule | where |~| old | row | x |~"

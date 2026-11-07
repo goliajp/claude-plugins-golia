@@ -41,9 +41,10 @@ One line per event: `{"at","ts","kind","rotationId","head", …}` plus the kind'
 | `trigger.result` | `trig{result,failed[],observed[],conf{…}}` | `trigger.sh self` |
 | `preflight.end` | `preflight{result,quick,parent,sha,files,reasons}`; `parent` = HEAD when it ran, `sha` = the commit checked or `null` | the project's pre-flight command |
 | `remote.start` | `remote{kind,log}`; `sha`, `marker` (regexp of the terminal line), `host` optional — **no host means the job ran locally and `log` is a local file**; `pid` (int, the runner shell the job runs under), `pidStart` (that process's `ps -o lstart`), `launcher` (int, the local pid holding the ssh) added by `remote_run.sh` | adapter commands (through `remote_run.sh` for a runner job), or `event.sh` for any other job |
-| `remote.end` | `remote.log` (or `kind`+`sha`); `status` ok/fail/abandoned, `rc` | adapter commands; `recover.sh` prints the command for a job whose end was never recorded |
+| `remote.end` | `remote.log` (or `kind`+`sha`); `status` ok/fail/abandoned/timeout, `rc` (`rc` 75 or 124 with `status` ok is written as `timeout` by `event.sh`) | adapter commands; `recover.sh` prints the command for a job whose end was never recorded |
 | `gate.end` | `gate{sha,pass,fail,skip,log}`; `host` optional. A `gate.end` for a log also closes that log's `remote.start` | the project's gate command — **the only writer** |
-| `executor.waiting` | `remote{log,marker}` or `workers: [names]` | the executor, before ending a turn to wait |
+| `executor.waiting` | `remote{log,marker}` (a relative `log` without `host` is read from the project root) or `workers: [names]`, and/or `waiting.window` (a window name: held while it is open, satisfied by its close) | the executor, before ending a turn to wait |
+| `window.open` / `window.extend` / `window.close` | `window{name}`; open and extend also `until` (epoch) and `untilAt` (ISO), `host` and `reason` optional. A second open of an open window is read as an extend; an extend or close of a window not open is ignored. Readers take these from every lane's log | `window.sh` |
 | `quota.hit` | `quota.resets` (epoch / ISO / local `HH:MM`); `quota.agent` | whoever received the 429 |
 | `process.start` / `process.end` | `process{pid,what}` — a shell the round started (`process.pid=int:$$` at the top of the background command); `end` when it finished on its own. The trigger's reaper ends every `start` without an `end` that is still alive, and nothing else | the executor, through `event.sh` |
 | `manager.start` / `spawn` / `resume` / `verify` / `stop` | all carry `managerSession`; `spawn`/`resume` need `manager.agent{id}`; `resume` needs `manager.reason` quota/restart/wake; `verify` needs `manager.checks{"n":"pass"/"fail"}` and `manager.result` | `manager_log.sh` (never `event.sh` directly) |
@@ -51,6 +52,10 @@ One line per event: `{"at","ts","kind","rotationId","head", …}` plus the kind'
 | `stamp.carried`, `report.saved`, `doctor.result` | as named | `carry_stamp.sh`, `report_save.sh`, `doctor.sh` |
 
 "This round's events" are those with `ts` ≥ the last self row's `ts`.
+
+## claims.jsonl
+
+`.claude/rotation-state/claims.jsonl` (under `ROTATION_STATE_DIR` when set): one file for every lane, append-only, written by `claim.sh` only. One line per action, compact JSON: `{"kind":"claim.add"|"claim.drop","lane","rid","glob","reason","ts","at"}` — `lane` is `ROTATION_LANE`, else the first lane's `ROTATION_LANE_NAME`, else `main`; `rid` the lane's round at the time (for a drop by `lane_close.sh`, the round that closed); `ts` epoch seconds, `at` the same in RFC-3339 UTC. A claim of `(lane, glob)` is in force from its `claim.add` until a later `claim.drop` of the same pair; a second add of a pair in force replaces its `rid` and `reason`.
 
 ## manager.active
 

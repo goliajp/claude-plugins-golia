@@ -18,6 +18,8 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_TRIG5_SAME_AXIS_MAX` | yes | — | consecutive same-axis rounds before `axes-review:` is required (template: 8) |
 | `ROTATION_TRIG5_BENCH_MAX_AGE_DAYS` | yes | — | how old the axis reading may be (template: 14) |
 | `ROTATION_TRIG8_GATE_COVERAGE` | no | `off` | `on` judges gate coverage; `off` prints no line. Switch on in a gap between rounds and note it in that round's handoff |
+| `ROTATION_PREFLIGHT_PER_COMMIT` | no | 0 | `1`: TRIG-10 FAILs while a first-parent non-merge commit of the session has no `preflight.end` whose `sha` equals it (prefix match); `0` prints no line |
+| `ROTATION_BATCH_MAX` | no | 0 | N > 0: TRIG-11 FAILs when more than N first-parent non-merge commits stand between two commits named by `gate.end` events (or between the session's start or its last gate and HEAD); `0` prints no line |
 | `ROTATION_TRIG9_VERDICT_RED` | no | `off` | `on`: the trigger FAILs while the round's filled close verdict has red, or has no filled verdict; `off` prints no line. Switch on in a gap |
 | `ROTATION_COLD_START_WINDOW` | no | 25 | commits TRIG-3 looks back on a cold start |
 | `ROTATION_AXES` | yes | — | the axis names, comma-separated |
@@ -29,6 +31,8 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_CLOSE_RULES` | yes | — | the rules table path (relative to the project root allowed); empty table = exit 2 |
 | `ROTATION_CLOSE_CHECKS_OFF` | no | — | rows dropped before planning, comma-separated; an unknown name = exit 2 |
 | `ROTATION_WORKER_STALE` | no | 1200 | seconds a worker still registered as running may go without its transcript being written before it is `dead?` (recover page) and a WAKE (watchdog) |
+| `ROTATION_WORKTREE_CHECK` | no | 1 | `0` skips INV-6 (agent worktrees at `.claude/worktrees/agent-*` no more than the agents still open) |
+| `ROTATION_WAIT_COMMANDS` | no | `bench-lock (bench\|heavy)\|mini_slot\.sh wait\|mini_heavy\.sh\|firefly_slot\.sh wait` | Python regexp: a worker past `ROTATION_WORKER_STALE` whose transcript ends on an unanswered call whose command matches is `waiting` (the recover page shows the matched part), no WAKE, until 3 × `ROTATION_WORKER_STALE`, then `dead?`; set and empty = no command counts |
 | `ROTATION_MESSAGES` | no | — | a `key=value` file overriding the verdict's human-read strings |
 | `ROTATION_LANE_SHARED_DIRS` | no | — | lanes only: top-level directories of the main tree that `lane_enter.sh` links into the lane's worktree, space-separated (e.g. `.dev`); [lanes.md](lanes.md) |
 | `ROTATION_LANE_NAME` | no | — | the name of the lane that has no directory (the project's first lane, `.claude/rotation/`): its events then carry `lane` like every other lane's. Unset, its rows are exactly what they were before lanes existed; [lanes.md](lanes.md) |
@@ -41,6 +45,9 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_MERGE_FROM` | no | `develop` | lanes: the branch `lane_close.sh` merges into the lane before its trigger |
 | `ROTATION_INBOX_FILE` | no | `.claude/autorun-inbox.md` | the inbox `lane_close.sh` and `lane_merge.sh --returned` write their rows into (created when missing) |
 | `ROTATION_INBOX_INSERT_LINE` | no | 65 | the line those rows land on (past the end of the file: appended) |
+| `ROTATION_TRACE_PATTERN` | no | `Co-Authored-By\|Generated with\|generated with\|🤖\|[Cc]laude` | lanes: an extended regexp `lane_close.sh` (step 0) refuses in any line of a commit message of the round's range, alongside `ROTATION_AGENT_ORIGIN_PATTERN` (default `^Agent-Origin:`) |
+| `ROTATION_HANDOFF_SECTIONS` | no | — (not checked) | lanes: titles the handoff must carry before `lane_close.sh` merges, `\|`-separated; a title is present when a line is `#`..`######`, a space and text containing it, or starts with `**` and it (literal text) |
+| `ROTATION_LANE_CLOSE_PRECHECK` | no | — (none) | lanes: a command `lane_close.sh` runs with `sh -c` in the lane's worktree after the trace and handoff check and before merging, with `ROTATION_MERGE_BASE` (the merge-base sha) and `ROTATION_HEAD` (HEAD's sha) in its environment; non-zero exit = exit 1, nothing merged or tagged, its last 20 output lines printed |
 
 `ROTATION_CONF_KERNEL` names the conf format, not a kernel version. From 2.0.0 it is independent of the product version (`hardev self version` prints both: `hardev 2.0.0 (conf format 1)`); the kernel declares the format it reads as `ROTATION_CONF_FORMAT` in `bin/lib.sh`. The format is still `1`: no key has changed meaning, and a key added with a default does not change the format. It rises only when an existing key's meaning changes incompatibly, and then the release notes say what to rewrite. A value written before 2.0.0 with a dot (`1.1`) is still read; only the part before the dot is compared.
 

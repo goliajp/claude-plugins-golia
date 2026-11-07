@@ -23,7 +23,11 @@
 # Last line, one of:
 #   RESUME <agentId>                an executor of this round is registered as running WITH an id, and it was
 #                                   registered from this session (managerSession == CLAUDE_CODE_SESSION_ID; an
-#                                   event older than the field counts as this session and the page says so)
+#                                   event older than the field counts as this session and the page says so) —
+#                                   or none is running and the round's executor recorded its agent.end within 10
+#                                   minutes after the round's last trigger.result, a block: it ended its turn on the
+#                                   block with its scene intact (`resumable:` line); re-register it with
+#                                   agent_log.sh start under the same name and id, then continue it
 #   CLEAN main tree first           no resumable executor, and the main tree has uncommitted files
 #   RESPAWN executor leftover=…     no resumable executor; worktrees / remote jobs / workers / an executor
 #                                   registered without an id (`executor:<name>(no-id)`) or from another session
@@ -60,6 +64,7 @@ fi
 
 export ROTATION_REPO="${ROTATION_REPO:-$PROJECT_DIR}"
 export ROTATION_EVENTS_LOG="$EVENTS_LOG"
+export ROTATION_WINDOW_LOGS="$(autorun_window_logs)"
 export ROTATION_ROTATIONS_LOG="$ROTATIONS_LOG"
 export ROTATION_MANAGER_ACTIVE="${ROTATION_MANAGER_ACTIVE:-$MANAGER_ACTIVE_FILE}"
 export ROTATION_AGENT_ORIGIN_PATTERN="$AGENT_ORIGIN_PATTERN"

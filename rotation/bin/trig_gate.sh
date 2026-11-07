@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# rotation kernel — TRIG-1..9 pre-trigger gate.
+# rotation kernel — TRIG-1..11 pre-trigger gate.
 #
 # Run by `trigger.sh self` before it generates a rotation_id and writes
 # any state. Governs whether a self-initiated rotation is *legitimate*
-# to trigger in the first place. Mirror of `check.sh` (INV-1..5) which
+# to trigger in the first place. Mirror of `check.sh` (INV-1..6) which
 # governs whether an already-triggered rotation may *execute*.
 #
 # Spec: README.md → "TRIG-1..7 spec". Every threshold comes from the
@@ -44,6 +44,11 @@
 #                            project's rotation.conf turns it on.
 #   TRIG-9  the verdict    — is the round's filled close verdict free of red?
 #                            Off until rotation.conf turns it on.
+#   TRIG-10 the pre-flight — did every commit of the session get its own
+#                            pre-flight, on record (preflight.end with its sha)?
+#                            Off until rotation.conf sets ROTATION_PREFLIGHT_PER_COMMIT=1.
+#   TRIG-11 the batch      — no run of more than ROTATION_BATCH_MAX commits
+#                            without a gate.end between them. Off at 0.
 #
 # TRIG-6 (2026-09-09) closes the structural hole the other five share:
 # every one of them reads what the handoff *says*. TRIG-3 checks the
@@ -170,6 +175,17 @@ TRIG9_VERDICT_RED="${ROTATION_TRIG9_VERDICT_RED:-off}"
 case "$TRIG9_VERDICT_RED" in
   on|off) ;;
   *) echo "trig_gate: ROTATION_TRIG9_VERDICT_RED must be on or off, got '$TRIG9_VERDICT_RED' ($ROTATION_CONF_FILE)" >&2; exit 2 ;;
+esac
+# TRIG-10 ships off (0): 1 judges that every commit of the session has its own preflight.end
+PREFLIGHT_PER_COMMIT="${ROTATION_PREFLIGHT_PER_COMMIT:-0}"
+case "$PREFLIGHT_PER_COMMIT" in
+  0|1) ;;
+  *) echo "trig_gate: ROTATION_PREFLIGHT_PER_COMMIT must be 0 or 1, got '$PREFLIGHT_PER_COMMIT' ($ROTATION_CONF_FILE)" >&2; exit 2 ;;
+esac
+# TRIG-11 ships off (0): N > 0 judges that no run of more than N commits goes without a gate.end
+BATCH_MAX="${ROTATION_BATCH_MAX:-0}"
+case "$BATCH_MAX" in
+  ''|*[!0-9]*) echo "trig_gate: ROTATION_BATCH_MAX must be a non-negative integer, got '$BATCH_MAX' ($ROTATION_CONF_FILE)" >&2; exit 2 ;;
 esac
 STAMP_DIR="${HARDEV_STAMP_DIR:-${ROTATION_STAMP_DIR:-}}"   # where the run stamps live
 if [ -z "$STAMP_DIR" ]; then
@@ -842,6 +858,105 @@ PY
   emit TRIG-9 PASS "close verdict of $rid (head $vhead): red=0 amber=$amber"
 }
 
+# ── TRIG-10 / TRIG-11 — what the commits got, read from the events ────
+# Both read the session's first-parent line (<previous self prevHead>..HEAD, oldest first; merge commits are
+# boundaries, never counted) against events.jsonl, so neither believes a handoff or a report: a round that
+# claimed every commit pre-flighted had 9 preflight.end for 27 commits, and batches of 7 between gates went
+# through, while both rules lived only in prose.
+#   preflight  every non-merge commit has a preflight.end whose `sha` equals it (either side may be short:
+#              compared by prefix); the missing ones are listed
+#   batch N    the commits are cut at every commit some gate.end names (`gate.sha`, by prefix): from the
+#              session's start to the first gate, between consecutive gates, and from the last gate to HEAD;
+#              a stretch of more than N non-merge commits is listed with its count and first and last sha
+session_commit_check() {  # session_commit_check preflight|batch [N]
+  local range
+  range=$(session_range)
+  git -C "$PROJECT_DIR" rev-list --first-parent --reverse --parents "$range" 2>/dev/null \
+    | python3 -c '
+import json, sys
+log, mode, nmax = sys.argv[1], sys.argv[2], int(sys.argv[3])
+commits = []
+for line in sys.stdin:
+    parts = line.split()
+    if parts:
+        commits.append((parts[0], len(parts) > 2))
+events = []
+try:
+    for line in open(log):
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+except OSError:
+    pass
+def same(a, b):
+    a, b = str(a or ""), str(b or "")
+    return len(a) >= 7 and len(b) >= 7 and (a.startswith(b) or b.startswith(a))
+plain = [c for c, merge in commits if not merge]
+if mode == "preflight":
+    shas = [e["preflight"].get("sha") for e in events if e.get("kind") == "preflight.end" and isinstance(e.get("preflight"), dict)]
+    missing = [c for c in plain if not any(same(c, s) for s in shas)]
+    print("%d\t%d\t%s" % (len(plain), len(missing), " ".join(c[:9] for c in missing)))
+    raise SystemExit
+gates = [e["gate"].get("sha") for e in events if e.get("kind") == "gate.end" and isinstance(e.get("gate"), dict)]
+over, run, worst = [], [], 0
+for c, merge in commits + [(None, False)]:
+    cut = c is None or any(same(c, g) for g in gates)
+    if c is not None and not merge:
+        run.append(c)
+    if cut:
+        worst = max(worst, len(run))
+        if len(run) > nmax:
+            over.append("%d commits %s..%s%s" % (len(run), run[0][:9], run[-1][:9], " (no gate.end since)" if c is None else ""))
+        run = []
+print("%d\t%d\t%s" % (len(plain), worst, "; ".join(over)))
+' "$EVENTS_LOG" "$1" "${2:-0}"
+}
+
+check_trig10() {
+  [ "$PREFLIGHT_PER_COMMIT" = 1 ] || return
+  if [ -z "$(autorun_last_self_row)" ]; then
+    emit TRIG-10 SKIP "no prior self rotation (cold start)"
+    return
+  fi
+  local res n nmiss miss
+  res=$(session_commit_check preflight)
+  IFS=$'\t' read -r n nmiss miss <<< "$res"
+  if [ -z "$n" ]; then
+    emit TRIG-10 FAIL "cannot read the session's commits or events"
+    failed+=(TRIG-10)
+    return
+  fi
+  if [ "$nmiss" -gt 0 ]; then
+    emit TRIG-10 FAIL "$nmiss of $n commit(s) have no preflight.end with their sha: $miss — pre-flight each commit (ROTATION_PREFLIGHT_PER_COMMIT=1)"
+    failed+=(TRIG-10)
+    return
+  fi
+  emit TRIG-10 PASS "commits=$n, each with a preflight.end"
+}
+
+check_trig11() {
+  [ "$BATCH_MAX" -gt 0 ] || return
+  if [ -z "$(autorun_last_self_row)" ]; then
+    emit TRIG-11 SKIP "no prior self rotation (cold start)"
+    return
+  fi
+  local res n worst over
+  res=$(session_commit_check batch "$BATCH_MAX")
+  IFS=$'\t' read -r n worst over <<< "$res"
+  if [ -z "$n" ]; then
+    emit TRIG-11 FAIL "cannot read the session's commits or events"
+    failed+=(TRIG-11)
+    return
+  fi
+  if [ -n "$over" ]; then
+    emit TRIG-11 FAIL "batch over ROTATION_BATCH_MAX=$BATCH_MAX without a gate.end: $over"
+    failed+=(TRIG-11)
+    return
+  fi
+  emit TRIG-11 PASS "commits=$n, largest batch between gates=$worst ≤ $BATCH_MAX"
+}
+
 resolve_wall
 check_trig1
 check_trig2
@@ -852,6 +967,8 @@ check_trig6
 check_trig7
 check_trig8
 check_trig9
+check_trig10
+check_trig11
 
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "TRIG-FAILED: ${failed[*]}" >&2
