@@ -1023,6 +1023,20 @@ expect_eq "a window opened in the first lane's log holds this lane's waiting; ov
 expect_has "status reads every lane's log" "$(run "$BIN/window.sh" status bench)" "OPEN name=bench host=mini"
 rm -rf "$REPO/.claude"
 
+# a relative remote.log of a local job is read from the project root, whatever directory the watchdog runs in
+win_round
+mkdir -p "$REPO/.claude"
+printf '# inbox\n' > "$REPO/.claude/inbox.md"
+ev 1000 executor.waiting '"remote":{"log":".claude/inbox.md","marker":"bench window .* closed"}'
+out=$(cd "$TMP" && watch); rc=$?
+expect_eq "relative remote.log, marker not there yet: no WAKE (run from another directory)" "$rc" "0"
+printf 'bench window r9 closed\n' >> "$REPO/.claude/inbox.md"
+out=$(cd "$TMP" && watch); rc=$?
+expect_eq "relative remote.log, the marker appears: WAKE from another directory" "$rc" "10"
+expect_has "that WAKE names the waited-on log" "$out" "WAKE remote=.claude/inbox.md is done"
+expect_has "recover from another directory: satisfied" "$(cd "$TMP" && run "$BIN/recover.sh")" "satisfied=yes"
+rm -rf "$REPO/.claude"
+
 echo
 echo "recover_self_test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

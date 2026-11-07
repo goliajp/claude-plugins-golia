@@ -250,10 +250,12 @@ def agents_of(events, round_ts):
 
 def marker_seen(log, marker, host):
     """True / False / None (no probe configured, nothing to look for, or the probe itself failed); a job without
-    a host is local, and its log is read here (no log file yet = not seen)"""
+    a host is local, and its log is read here (no log file yet = not seen). a relative local log is the project
+    root's, not the working directory's: the watchdog runs wherever the manager started it"""
     if not log or not marker:
         return None
     if not host:
+        log = os.path.join(REPO, log)
         try:
             with open(log) as f:
                 return any(re.search(marker, line) for line in f)
