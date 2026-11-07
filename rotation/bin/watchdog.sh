@@ -11,7 +11,10 @@
 #                             marker is in the log, or every listed worker has an agent.end),
 #                             the executor has recorded nothing since, and --wake seconds passed
 #                             — or the round's last remote.end was followed by no executor event and
-#                             no commit for --wake seconds (a manager.resume restarts that clock)
+#                             no commit for --wake seconds (a manager.resume restarts that clock), unless
+#                             an executor.waiting is in force and its condition is not seen to hold: the
+#                             executor said what it waits for, and a remote job ending is not that
+#                             (a remote.end / gate.end after an executor.waiting leaves it in force)
 #                             — neither of these two while a worker / reviewer / research agent of this
 #                             round still registered as running wrote its transcript within --wake
 #                             seconds: the executor is polling it in a foreground call and records nothing
@@ -38,6 +41,14 @@
 #                             to the main tree (the manager session, in the 2026-10-01 incident).
 #   MULTI-EXECUTOR (exit 15)  more than one rotation executor of this round is registered as running; the
 #                             protocol runs one at a time, the stale one has to be ended (checked first)
+#   WINDOW-OVERDUE (exit 16)  a window this lane opened (window.sh) is still open --wake seconds after its
+#                             `until`, with no extend or close since: whoever holds it stopped saying how long
+#                             (checked after QUOTA, before WAKE)
+#
+#   executor.waiting waiting.window=<name>: while that window is open (in any lane's log) the waiting is not
+#   satisfied, so neither WAKE fires; its workers whose transcripts went silent are `waiting`, not dead?; and
+#   the window counts as a sign of life up to its `until` (no STALE before then). The close satisfies it (with
+#   the remote / workers condition, when the waiting names one too), and --wake then runs from the close
 #
 #   --once  one pass, no start floor: prints the hit, or `OK …` and exits 0
 #   --all   one process watches every lane of the project (the first lane, then each
@@ -45,7 +56,7 @@
 #           floor for all; on a hit it prints `== lane <name> ==` and the line for every lane that hit, and exits
 #           with the highest of their codes. With --once every lane's line is printed under its header
 #
-# exit: 10–15 as above · 0 only with --once · 1 the check itself failed · 2 usage
+# exit: 10–16 as above · 0 only with --once · 1 the check itself failed · 2 usage
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -97,6 +108,7 @@ fi
 
 export ROTATION_REPO="${ROTATION_REPO:-$PROJECT_DIR}"
 export ROTATION_EVENTS_LOG="$EVENTS_LOG"
+export ROTATION_WINDOW_LOGS="$(autorun_window_logs)"
 export ROTATION_ROTATIONS_LOG="$ROTATIONS_LOG"
 export ROTATION_MANAGER_ACTIVE="${ROTATION_MANAGER_ACTIVE:-$MANAGER_ACTIVE_FILE}"
 export ROTATION_AGENT_ORIGIN_PATTERN="$AGENT_ORIGIN_PATTERN"

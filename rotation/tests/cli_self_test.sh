@@ -30,6 +30,13 @@ lane close|$BIN/lane_close.sh
 lane merge lane/p/r-1|$BIN/lane_merge.sh lane/p/r-1
 lane merge --returned lane/p/r-1 why|$BIN/lane_merge.sh --returned lane/p/r-1 why
 lane return lane/p/r-1 why abc|$BIN/lane_merge.sh --returned lane/p/r-1 why abc
+window open bench --until +60|$BIN/window.sh open bench --until +60
+window extend bench --until +60|$BIN/window.sh extend bench --until +60
+window close bench|$BIN/window.sh close bench
+window status bench|$BIN/window.sh status bench
+claim add crates/a --reason x|$BIN/claim.sh add crates/a --reason x
+claim drop crates/a|$BIN/claim.sh drop crates/a
+claim list|$BIN/claim.sh list
 event add foo k=v|$BIN/event.sh foo k=v
 agent start w worker opus task|$BIN/agent_log.sh start w worker opus task
 agent end w worker opus|$BIN/agent_log.sh end w worker opus
@@ -67,7 +74,7 @@ self path|(built-in) self path
 self install|(built-in) self install
 self uninstall|(built-in) self uninstall
 EOF
-ok "1 every table row has a case above" "$(grep -v '^#' "$BIN/commands.tsv" | grep -vc '^$')" "46"
+ok "1 every table row has a case above" "$(grep -v '^#' "$BIN/commands.tsv" | grep -vc '^$')" "53"
 
 # ── 2. global options ───────────────────────────────────────────────────
 out=$(dry lane close --lane plat)
@@ -148,7 +155,7 @@ has "4 … prints the usage" "$out" "^usage: hardev <noun>"
 # ── 5. help ─────────────────────────────────────────────────────────────
 out=$("$H" help); rc=$?
 ok "5 help: exit 0" "$rc" "0"
-ok "5 help: one line per row" "$(printf '%s\n' "$out" | grep -c '^  [a-z]')" "46"
+ok "5 help: one line per row" "$(printf '%s\n' "$out" | grep -c '^  [a-z]')" "53"
 has "5 help marks --json" "$out" "^  recover \[--all\] \[--no-probe\] \[--json\] "
 out=$("$H" lane help)
 ok "5 lane help: the lane rows" "$(printf '%s\n' "$out" | awk '{print $1 $2}' | tr '\n' ' ')" "lanelist laneenter laneclose lanemerge lanereturn "
@@ -226,8 +233,10 @@ onboard_check.sh||onboard_check.sh
 lanes.sh|--json|lanes.sh --json
 lane_close.sh||lane_close.sh
 lane_merge.sh|--returned t why|lane_merge.sh --returned t why
+window.sh|status bench|window.sh status bench
+claim.sh|list|claim.sh list
 EOF
-ok "8 every shim has a case above" "$(cd "$S/.claude/rotation" && printf '%s\n' *.sh | grep -c .)" "24"
+ok "8 every shim has a case above" "$(cd "$S/.claude/rotation" && printf '%s\n' *.sh | grep -c .)" "26"
 (cd "$S/.claude" && bash "$S/.claude/rotation/event.sh" cli.note note.kind=shim >/dev/null 2>&1)
 ok "8 a real call through a hardev shim writes the project's event" "$(grep -c '"shim"' "$S/.claude/rotation-state/events.jsonl" 2>/dev/null)" "1"
 (cd "$S" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$BIN/init.sh" --lane plat --shims hardev >/dev/null 2>&1)
@@ -244,7 +253,7 @@ ok "8 … only project.sh" "$(cd "$N/.claude/rotation" && printf '%s\n' *.sh)" "
 L="$T/legacy"; mkdir -p "$L"; git -C "$L" init -q && git -C "$L" commit -q --allow-empty -m init
 out=$(cd "$L" && CLAUDE_PLUGIN_ROOT="$ROOT" bash "$BIN/init.sh" 2>&1)
 has "8 default stays legacy: the shim execs the kernel script" "$(cat "$L/.claude/rotation/event.sh")" '^exec "\$\(cat "\$d/kernel.path"\)/bin/event.sh" "\$@"$'
-has "8 … and init's line is unchanged" "$out" "^init: 23 shims in .*/legacy/.claude/rotation$"
+has "8 … and init's line is unchanged" "$out" "^init: 25 shims in .*/legacy/.claude/rotation$"
 out=$(cd "$L" && bash "$BIN/init.sh" --shims bogus 2>&1); rc=$?
 ok "8 --shims bogus: exit 2" "$rc" "2"
 

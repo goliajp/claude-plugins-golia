@@ -272,7 +272,7 @@ round() {
     expect_eq "$tag recover.sh after the close: IDLE (local jobs all ended, no probe configured)" "$(printf '%s\n' "$out" | tail -1)" "IDLE"
     expect_has "$tag recover.sh says no probe is configured" "$out" 'remote probe: ROTATION_REMOTE_PROBE_CMD not set'
 
-    # the Stop hook at the next turn ends: the intent trigger.sh left is consumed only when INV-1..5 are green
+    # the Stop hook at the next turn ends: the intent trigger.sh left is consumed only when INV-1..6 are green
     local rid
     rid=$(cat "$REPO/.claude/autorun-intent" 2>/dev/null)
     expect_has "$tag trigger.sh left the intent with the new id" "$rid" '^r-[0-9]+-[0-9a-f]{4}$'
@@ -286,7 +286,7 @@ round() {
     out=$(stop_payload | henv bash "$KERNEL/stop_hook.sh" 2>&1); rc=$?
     expect_eq "$tag Stop hook with a clean tree: exit 0" "$rc" 0
     expect_has "$tag green: INV-3 compares the handoff triple with the row trigger.sh wrote" "$out" '^INV-3 PASS current 12/0/1 >= prior 12/0/1$'
-    expect_has "$tag green: the intent is consumed" "$out" "^stop_hook: rotation $rid green · INV-1..5 pass · intent consumed$"
+    expect_has "$tag green: the intent is consumed" "$out" "^stop_hook: rotation $rid green · INV-1..6 pass · intent consumed$"
     [ -e "$REPO/.claude/autorun-intent" ] && bad "$tag green: the intent file remains" || ok "$tag green: the intent file is gone"
     [ -e "$REPO/crates/x/.claude" ] && bad "$tag the hook took CLAUDE_PROJECT_DIR for the root" || ok "$tag the hook ran from a subdirectory and used the git top level"
   else

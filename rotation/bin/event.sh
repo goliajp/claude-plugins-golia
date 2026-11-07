@@ -10,8 +10,13 @@
 # The kinds the recovery tools read, and what each must carry:
 #   remote.start      remote.kind= remote.log=  [remote.sha= remote.marker=<regexp of the terminal line> remote.host=]
 #                     [remote.pid=int: remote.pidStart= remote.launcher=int:]  — remote_run.sh adds these three
-#   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned]
+#   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned|timeout remote.rc=int:]
+#                     remote.rc 75 or 124 (a wait that ran out, `timeout`'s code) with remote.status=ok is not
+#                     recorded as ok: the status is written as timeout and a line on stderr says so
 #   executor.waiting  remote.log= remote.marker= [remote.host=]   or   workers=list:<name>,<name>
+#                     and/or waiting.window=<name>: held while that window is open (window.sh)
+#   window.open / window.extend   window.name= window.until=int:<epoch> window.untilAt=<ISO> [window.host= window.reason=]
+#   window.close      window.name= [window.reason=]          — window.sh writes these three; call it, not this
 #   quota.hit         quota.resets=<epoch | ISO time | HH:MM local>  [quota.agent=<name or id>]
 #   process.start     process.pid=int:<pid> [process.what=<label>]  — a shell this round started
 #                     (`process.pid=int:$$` at the top of a background command); the trigger's
@@ -23,13 +28,25 @@
 #                     manager.reason=quota|restart|wake; verify needs manager.checks=raw:{"1":"pass",…}
 #                     and manager.result=pass|fail. manager_log.sh builds these; call it, not this.
 #
-# exit: 0 recorded · 2 usage or a required key missing
+# With ROTATION_LANE unset, a call from inside a lane's tree is refused (autorun_lane_of_cwd: under
+# .claude/lanes/<lane>/, or a worktree on a lane's branch): there the first lane's log is what the links resolve
+# to, and the event would land in the wrong lane's chain. The lane's shim sets ROTATION_LANE.
+#
+# exit: 0 recorded · 2 usage, a required key missing, or a lane's tree without ROTATION_LANE
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
+. "$SCRIPT_DIR/lane_lib.sh"
 
 [ "$#" -ge 1 ] || { echo "usage: event.sh <kind> [key=value ...]" >&2; exit 2; }
+if [ -z "$ROTATION_LANE" ]; then
+  in_lane=$(autorun_lane_of_cwd)
+  if [ -n "$in_lane" ]; then
+    echo "event.sh: $PWD is lane $in_lane's tree and ROTATION_LANE is unset — run it through the lane's shim .claude/rotation-lanes/$in_lane/event.sh" >&2
+    exit 2
+  fi
+fi
 KIND=$1
 shift
 
@@ -72,8 +89,20 @@ if kind == 'remote.start' and not (remote.get('kind') and remote.get('log')):
     fail('remote.start needs remote.kind= and remote.log=')
 if kind == 'remote.end' and not (remote.get('log') or (remote.get('kind') and remote.get('sha'))):
     fail('remote.end needs remote.log= (or remote.kind= and remote.sha=)')
-if kind == 'executor.waiting' and not ((remote.get('log') and remote.get('marker')) or doc.get('workers')):
-    fail('executor.waiting needs remote.log= and remote.marker=, or workers=list:<names>')
+waiting = doc.get('waiting') if isinstance(doc.get('waiting'), dict) else {}
+if kind == 'remote.end' and remote.get('status') == 'ok' and str(remote.get('rc')).strip() in ('75', '124'):
+    print(f"event.sh: remote.end with remote.rc={remote['rc']} is a timeout, not ok; recorded as remote.status=timeout", file=sys.stderr)
+    remote['status'] = 'timeout'
+if kind == 'executor.waiting' and not ((remote.get('log') and remote.get('marker')) or doc.get('workers') or waiting.get('window')):
+    fail('executor.waiting needs remote.log= and remote.marker=, or workers=list:<names>, or waiting.window=<name>')
+if kind.startswith('window.'):
+    win = doc.get('window') if isinstance(doc.get('window'), dict) else {}
+    if kind not in ('window.open', 'window.extend', 'window.close'):
+        fail(f"unknown window kind '{kind}'")
+    if not win.get('name'):
+        fail(f'{kind} needs window.name=')
+    if kind != 'window.close' and (not isinstance(win.get('until'), int) or isinstance(win.get('until'), bool)):
+        fail(f'{kind} needs window.until=int:<epoch>')
 if kind == 'quota.hit' and (not isinstance(doc.get('quota'), dict) or doc['quota'].get('resets') in (None, '')):
     fail('quota.hit needs quota.resets=')
 if kind in ('process.start', 'process.end'):
