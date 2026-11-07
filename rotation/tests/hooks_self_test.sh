@@ -123,7 +123,7 @@ out=$(stop_payload | henv bash "$KBIN/stop_hook.sh" 2>&1); rc=$?
 expect_eq "stop without an intent: exit 0, silent" "$rc [$out]" "0 []"
 expect_eq "stop without an intent: no event" "$(grep -c . "$EV")" "$n"
 
-# ── stop: with an intent pending, INV-1..5 decide whether it is consumed ─
+# ── stop: with an intent pending, INV-1..6 decide whether it is consumed ─
 INTENT="$REPO/.claude/autorun-intent"
 printf 'r-hook-1\n' > "$INTENT"
 printf '# handoff\n\nHEAD %s\n\n## rotate-trigger\n\naxis: A\nclosed: %s first\ngate: 1/0/0\n' "$SHA" "$SHA" > "$REPO/.claude/handoff.md"
@@ -136,7 +136,7 @@ expect_eq "red: the intent file is still there" "$(cat "$INTENT")" "r-hook-1"
 rm "$REPO/sub/stray.txt"
 out=$(stop_payload | henv bash "$KBIN/stop_hook.sh" 2>&1); rc=$?
 expect_eq "stop with an intent and a clean tree: exit 0" "$rc" 0
-expect_has "green: INV-1..5 pass" "$out" '^stop_hook: rotation r-hook-1 green · INV-1..5 pass · intent consumed$'
+expect_has "green: INV-1..6 pass" "$out" '^stop_hook: rotation r-hook-1 green · INV-1..6 pass · intent consumed$'
 [ -e "$INTENT" ] && bad "green: the intent file remains" || ok "green: the intent file is gone"
 expect_eq "stop wrote no event" "$(grep -c . "$EV")" "$n"
 

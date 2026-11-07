@@ -4,7 +4,7 @@
 #
 # Run by `trigger.sh self` before it generates a rotation_id and writes
 # any state. Governs whether a self-initiated rotation is *legitimate*
-# to trigger in the first place. Mirror of `check.sh` (INV-1..5) which
+# to trigger in the first place. Mirror of `check.sh` (INV-1..6) which
 # governs whether an already-triggered rotation may *execute*.
 #
 # Spec: README.md → "TRIG-1..7 spec". Every threshold comes from the

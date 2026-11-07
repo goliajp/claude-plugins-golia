@@ -1,6 +1,6 @@
 # The two gates
 
-Two independent, mechanical gates with no model judgement in either. **TRIG-1..11** governs whether a self-initiated rotation may be *triggered* at all (`trigger.sh self` → `trig_gate.sh`, before any state is written). **INV-1..5** governs whether a triggered rotation may *proceed* (the `Stop` hook → `check.sh`, at every turn end while the intent is pending).
+Two independent, mechanical gates with no model judgement in either. **TRIG-1..11** governs whether a self-initiated rotation may be *triggered* at all (`trigger.sh self` → `trig_gate.sh`, before any state is written). **INV-1..6** governs whether a triggered rotation may *proceed* (the `Stop` hook → `check.sh`, at every turn end while the intent is pending).
 
 Both print one stable line per check — `TRIG-N STATE detail` / `INV-N STATE detail` — with STATE in PASS / FAIL / SKIP / WAIVED / OBSERVE, and summarise failures on stderr (`TRIG-FAILED: TRIG-x …` / `FAILED: INV-x …`). Exit 0 all pass, 1 a FAIL, 2 configuration (a missing conf, a non-integer threshold, an unknown mode value — never reported as a gate result).
 
@@ -28,7 +28,7 @@ What each gate owns, so that none duplicates another: 1 the floor (two measures 
 
 `trigger.sh manual` is the operator's override: it skips TRIG-1..11 and refuses without an interactive terminal on stdin (exit 3). `hook` and `daemon` are reserved sources and are not gated either; a model's shell has exactly one path, `self`.
 
-## INV-1..5 — may this triggered round proceed?
+## INV-1..6 — may this triggered round proceed?
 
 Run by the `Stop` hook while `.claude/autorun-intent` exists (the trigger wrote it). Green consumes the intent; red keeps it so the next turn end retries after the executor fixed the invariant, without re-running the trigger.
 
@@ -39,6 +39,7 @@ Run by the `Stop` hook while `.claude/autorun-intent` exists (the trigger wrote 
 | **INV-3** | the `gate:` triple's first number ≥ the previous row's `conformanceBefore` | a regression introduced in this round, unnoticed |
 | **INV-4** | the handoff is non-empty, has the trigger section and names at least one commit sha | a phantom handoff (zero bytes, half written, a stray `touch`) that satisfies INV-1 |
 | **INV-5** | the new `rotationId` is not already in `rotations.jsonl` | an id collision corrupting every later join. Checked only when a rid is passed (`check.sh <rid>`): the Stop hook passes none, because the trigger has already appended the row, and would otherwise fail forever |
+| **INV-6** | the worktrees at `.claude/worktrees/agent-*` of this tree are no more than the agents still open (an `agent.start` since the previous row with no later `agent.end` of the same name); the extra ones are listed, those an open agent's `agent.worktree` names left out. `ROTATION_WORKTREE_CHECK=0` skips it | an executor reporting its workers' worktrees removed while they are still there |
 
 Exit codes as above. `check.sh` can be run by hand at any time as a pre-flight for the handover.
 
