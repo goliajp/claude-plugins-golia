@@ -489,6 +489,8 @@ check_trig5() {
     emit TRIG-5 SKIP "no axis on this rotation (TRIG-3 already FAIL)"
     return
   fi
+  # a lane with a single axis has nothing to rotate to: the skew this gate catches cannot exist there
+  case "$AXES_ALT" in *'|'*) ;; *) emit TRIG-5 PASS "single axis ($AXES_ALT) configured; nothing to rotate to"; return ;; esac
   local need=$(( TRIG5_SAME_AXIS_MAX - 1 ))
   local prior
   prior=$(python3 - "$ROTATIONS_LOG" "$(autorun_project_name)" "$need" <<'PY'
