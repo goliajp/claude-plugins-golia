@@ -73,6 +73,7 @@ In the lane's worktree, through the lane's shim, after the close checks and the 
 bash .claude/rotation-lanes/<lane>/lane_close.sh
 ```
 
+0. Trace check, before anything is merged: every commit of `<merge-base>..HEAD` (the merge base of the base below and HEAD) is read with `git log --format=%B`, and a line matching `ROTATION_AGENT_ORIGIN_PATTERN` (default `^Agent-Origin:`) or `ROTATION_TRACE_PATTERN` (default `Co-Authored-By|Generated with|generated with|🤖|[Cc]laude`) is listed with its sha. The handoff must carry every title of `ROTATION_HANDOFF_SECTIONS` (`|`-separated, default empty = not checked): a line of `#`..`######`, a space and text containing the title, or a line starting with `**` and the title; the missing ones are listed. Either finding exits 1 with nothing merged and no tag: reword the commits (a cherry-pick keeps the trailer) or write the section, and run it again.
 1. `git merge <ROTATION_MERGE_FROM>` (default `develop`, message `merge: <base> into <lane branch>`): the round closes on what the merging lane has, so the tag merges back without surprises. A conflict exits 3, prints the conflicted files and leaves the merge in progress; resolve and commit (or `git merge --abort`) and run it again.
 2. `ROTATION_LANE_CLOSE_HOOK` (optional; `project.sh` or `rotation.conf`): what the project regenerates after that merge, run with `sh -c` in the worktree. Non-zero stops the close (exit 1).
 3. `trigger.sh self`: the lane's trigger gate. Blocked = exit 1, no tag, no inbox row: keep working and run it again.
@@ -80,7 +81,7 @@ bash .claude/rotation-lanes/<lane>/lane_close.sh
 5. One row at line `ROTATION_INBOX_INSERT_LINE` (default 65) of `ROTATION_INBOX_FILE` (default `.claude/autorun-inbox.md`; through `lane_enter.sh`'s link this is the main tree's inbox): `| <date> | lane/<lane>/<rid> ready · <N> commit · gate <N>/<F>/<S> | .claude/rotation-lanes/<lane>/handoff.md |`. The commit count is the `commitsInSession` of the row the trigger wrote, the gate triple the round's last `gate.end`; `?` where unknown.
 6. Event `lane.ready` in the lane's log. Last line `LANE READY <tag> head=<sha>`.
 
-Exit: 0 · 1 a step failed (not on the lane's branch, the tag exists, the hook, the trigger) · 2 usage (not run through a lane's shim) · 3 merge conflict.
+Exit: 0 · 1 a step failed (not on the lane's branch, the tag exists, the trace check, the hook, the trigger) · 2 usage (not run through a lane's shim) · 3 merge conflict.
 
 ### Merging it, or handing it back: `lane_merge.sh`
 

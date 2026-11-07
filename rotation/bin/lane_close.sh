@@ -4,6 +4,16 @@
 # executor in the lane's worktree, through the lane's shim (`bash .claude/rotation-lanes/<lane>/lane_close.sh`),
 # after the close checks and the handoff are done — in place of `trigger.sh self`:
 #
+#   0. trace check                       before anything is merged: every commit of <merge-base>..HEAD
+#                                         (merge-base of <base> below and HEAD) is read with `git log --format=%B`;
+#                                         a message line matching ROTATION_AGENT_ORIGIN_PATTERN (default
+#                                         ^Agent-Origin:) or ROTATION_TRACE_PATTERN (rotation.conf, default
+#                                         Co-Authored-By|Generated with|generated with|🤖|[Cc]laude) is refused,
+#                                         listed as sha and line. The handoff (HANDOFF_FILE) must carry every title
+#                                         of ROTATION_HANDOFF_SECTIONS (rotation.conf, `|`-separated, default empty =
+#                                         not checked): a line `#`..`######` + space whose text contains the title,
+#                                         or a line starting `**` + the title (literal text, not a regexp); the
+#                                         missing ones are listed. Either finding = exit 1, nothing merged or tagged
 #   1. git merge <base>                  (--merge-from REF, else ROTATION_MERGE_FROM, else develop; message
 #                                         `merge: <base> into <branch>`) — the round
 #                                         closes on top of what the merging lane has, so the tag merges back cleanly
@@ -25,8 +35,8 @@
 # usage: lane_close.sh [--merge-from REF]
 #   --merge-from REF   the commit to merge this once (a round-end sha of the merging lane, say); the key in
 #                      rotation.conf stays the standing default and the conf file is not touched
-# exit: 0 tagged and announced · 1 a step failed (not a lane worktree on its branch, the tag exists, the hook,
-#       the trigger gate) · 2 usage · 3 merge conflict
+# exit: 0 tagged and announced · 1 a step failed (not a lane worktree on its branch, the tag exists, a trace
+#       in a commit message or a missing handoff section, the hook, the trigger gate) · 2 usage · 3 merge conflict
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -54,6 +64,38 @@ if g rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
   exit 1
 fi
 base="${MERGE_FROM_ARG:-${ROTATION_MERGE_FROM:-develop}}"
+
+mb=$(g merge-base "$base" HEAD) || { echo "lane_close: no merge base of $base and HEAD" >&2; exit 1; }
+trace="${ROTATION_TRACE_PATTERN:-Co-Authored-By|Generated with|generated with|🤖|[Cc]laude}"
+echo "lane_close: 0 trace check ${mb:0:9}..HEAD, handoff sections"
+found=0
+for sha in $(g rev-list "$mb..HEAD"); do
+  hits=$(g log -1 --format=%B "$sha" | grep -nE -e "$AGENT_ORIGIN_PATTERN" -e "$trace")
+  [ -n "$hits" ] || continue
+  found=1
+  echo "lane_close: commit ${sha:0:9} carries a trace:"
+  printf '%s\n' "$hits" | sed 's/^/  /'
+done
+missing=$(python3 - "$HANDOFF_FILE" "${ROTATION_HANDOFF_SECTIONS:-}" <<'PY'
+import re, sys
+path, spec = sys.argv[1], sys.argv[2]
+titles = [t.strip() for t in spec.split('|') if t.strip()]
+try:
+    text = open(path, encoding='utf-8').read().splitlines()
+except OSError:
+    text = []
+for t in titles:
+    e = re.escape(t)
+    if not any(re.match(r'#{1,6} .*' + e, l) or re.match(r'\*\*' + e, l) for l in text):
+        print(t)
+PY
+)
+if [ -n "$missing" ]; then
+  found=1
+  echo "lane_close: the handoff $HANDOFF_FILE lacks section(s):"
+  printf '%s\n' "$missing" | sed 's/^/  /'
+fi
+[ "$found" -eq 0 ] || { echo "lane_close: trace check failed — nothing merged, no tag" >&2; exit 1; }
 
 echo "lane_close: 1 merge $base into $branch"
 if ! g merge --no-edit -m "merge: $base into $branch" "$base"; then

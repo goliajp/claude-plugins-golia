@@ -41,6 +41,8 @@ Two files the project owns, written once by `init.sh` from the templates and nev
 | `ROTATION_MERGE_FROM` | no | `develop` | lanes: the branch `lane_close.sh` merges into the lane before its trigger |
 | `ROTATION_INBOX_FILE` | no | `.claude/autorun-inbox.md` | the inbox `lane_close.sh` and `lane_merge.sh --returned` write their rows into (created when missing) |
 | `ROTATION_INBOX_INSERT_LINE` | no | 65 | the line those rows land on (past the end of the file: appended) |
+| `ROTATION_TRACE_PATTERN` | no | `Co-Authored-By\|Generated with\|generated with\|🤖\|[Cc]laude` | lanes: an extended regexp `lane_close.sh` (step 0) refuses in any line of a commit message of the round's range, alongside `ROTATION_AGENT_ORIGIN_PATTERN` (default `^Agent-Origin:`) |
+| `ROTATION_HANDOFF_SECTIONS` | no | — (not checked) | lanes: titles the handoff must carry before `lane_close.sh` merges, `\|`-separated; a title is present when a line is `#`..`######`, a space and text containing it, or starts with `**` and it (literal text) |
 
 `ROTATION_CONF_KERNEL` names the conf format, not a kernel version. From 2.0.0 it is independent of the product version (`hardev self version` prints both: `hardev 2.0.0 (conf format 1)`); the kernel declares the format it reads as `ROTATION_CONF_FORMAT` in `bin/lib.sh`. The format is still `1`: no key has changed meaning, and a key added with a default does not change the format. It rises only when an existing key's meaning changes incompatibly, and then the release notes say what to rewrite. A value written before 2.0.0 with a dot (`1.1`) is still read; only the part before the dot is compared.
 
