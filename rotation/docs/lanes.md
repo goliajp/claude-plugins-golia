@@ -114,6 +114,19 @@ The three kinds join on `tag` (`lane/<lane>/<rid>`): one chain per closed lane r
 
 These fields are append-only like every other event's: never renamed or removed.
 
+## Protocol v3
+
+What the kernel enforces for several lanes running side by side, in place of rules that lived only in prompts:
+
+| | What | Where |
+|---|---|---|
+| Windows as events | A job that needs a host to itself (a bench) holds a window: `window.sh open <name> --host H --until T`, `extend` while it runs longer, `close` when done; `window.sh status` and the last line of `lanes.sh` show the open ones, read from every lane's log. A lane that has to wait records `executor.waiting waiting.window=<name>`: no WAKE and no `dead?` worker while the window is open, the WAKE comes after its close. A window still open `--wake` seconds past its `until` with no extend or close is `WINDOW-OVERDUE` (exit 16) in the lane that opened it | `window.sh`, `watchdog.sh`, [recovery.md](recovery.md) |
+| `lane_close.sh` step 0 | before anything is merged: no `Agent-Origin:` trailer or trace pattern in the round's commit messages, and every `ROTATION_HANDOFF_SECTIONS` title in the handoff | `lane_close.sh` (above) |
+| TRIG-10 | every first-parent commit of the session has a `preflight.end` with its sha (`ROTATION_PREFLIGHT_PER_COMMIT=1`) | `trig_gate.sh`, [gates.md](gates.md) |
+| TRIG-11 | no more than `ROTATION_BATCH_MAX` commits between two `gate.end` events, or from the last one to HEAD | `trig_gate.sh`, [gates.md](gates.md) |
+| Lane guard | `event.sh` without `ROTATION_LANE` in a lane's tree refuses (exit 2) instead of writing the first lane's log | `event.sh` (above) |
+| Claims (to do) | a register of which lane is changing which paths, so two lanes do not fix the same defect twice; `lane_close.sh` would drop the round's claims. Not built yet | — |
+
 ## Removing a lane
 
 Stop its executor, merge or drop its branch, leave `.claude/rotation-lanes/<lane>/` and `.claude/rotation-state/lanes/<lane>/` in place as history (or delete them). The first lane never referenced them: with the lane gone the project is exactly the single-lane project it was. A lane can be re-opened later with the same name; its state continues where it stopped.
