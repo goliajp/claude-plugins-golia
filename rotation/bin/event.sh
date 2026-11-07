@@ -10,7 +10,9 @@
 # The kinds the recovery tools read, and what each must carry:
 #   remote.start      remote.kind= remote.log=  [remote.sha= remote.marker=<regexp of the terminal line> remote.host=]
 #                     [remote.pid=int: remote.pidStart= remote.launcher=int:]  — remote_run.sh adds these three
-#   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned]
+#   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned|timeout remote.rc=int:]
+#                     remote.rc 75 or 124 (a wait that ran out, `timeout`'s code) with remote.status=ok is not
+#                     recorded as ok: the status is written as timeout and a line on stderr says so
 #   executor.waiting  remote.log= remote.marker= [remote.host=]   or   workers=list:<name>,<name>
 #                     and/or waiting.window=<name>: held while that window is open (window.sh)
 #   window.open / window.extend   window.name= window.until=int:<epoch> window.untilAt=<ISO> [window.host= window.reason=]
@@ -88,6 +90,9 @@ if kind == 'remote.start' and not (remote.get('kind') and remote.get('log')):
 if kind == 'remote.end' and not (remote.get('log') or (remote.get('kind') and remote.get('sha'))):
     fail('remote.end needs remote.log= (or remote.kind= and remote.sha=)')
 waiting = doc.get('waiting') if isinstance(doc.get('waiting'), dict) else {}
+if kind == 'remote.end' and remote.get('status') == 'ok' and str(remote.get('rc')).strip() in ('75', '124'):
+    print(f"event.sh: remote.end with remote.rc={remote['rc']} is a timeout, not ok; recorded as remote.status=timeout", file=sys.stderr)
+    remote['status'] = 'timeout'
 if kind == 'executor.waiting' and not ((remote.get('log') and remote.get('marker')) or doc.get('workers') or waiting.get('window')):
     fail('executor.waiting needs remote.log= and remote.marker=, or workers=list:<names>, or waiting.window=<name>')
 if kind.startswith('window.'):

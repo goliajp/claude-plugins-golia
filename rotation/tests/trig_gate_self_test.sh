@@ -93,6 +93,14 @@
 #  79  the same, nothing removed and pass −1           → exit 1, TRIG-9 FAIL naming the sweep's pass line
 #  80  the same, 41 removed and pass −50               → exit 1, TRIG-9 FAIL
 #  81  the same, one case lost and one added: pass 200 → 200 → exit 1, TRIG-9 FAIL naming the lost case
+#  82  TRIG-10 / TRIG-11 switches absent (0)              → no TRIG-10 / TRIG-11 line, exit 0
+#  83  TRIG-10 on, every commit has a preflight.end (short and full shas) → TRIG-10 PASS
+#  84  TRIG-10 on, two commits without one               → exit 1, TRIG-10 FAIL listing both
+#  85  TRIG-10 switch with an unknown value               → exit 2
+#  86  TRIG-11 N=3, gates after the 3rd and the 6th commit → TRIG-11 PASS largest=3
+#  87  TRIG-11 N=3, one gate after the 1st commit         → exit 1, TRIG-11 FAIL: 5 commits to HEAD with no gate since
+#  88  TRIG-11 N=3, no gate.end at all                   → exit 1, TRIG-11 FAIL: 6 commits
+#  89  TRIG-11 with a non-integer value                   → exit 2
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -788,6 +796,44 @@ else
   bad "71c --suggest cap" "exit=$rc $out"
 fi
 EXTRA_ENV=()
+
+# ── TRIG-10 / TRIG-11: the session's commits read against the events ────
+for i in 1 2 3 4 5 6; do echo "t$i" > "$REPO/t$i.txt"; g add "t$i.txt"; g commit -q -m "feat: t$i"; done
+T=()
+for i in 5 4 3 2 1 0; do T+=("$(g rev-parse "HEAD~$i")"); done
+REAL_SHA="$(g rev-parse --short HEAD)"
+mk_stamps
+mk_handoff "$GOOD_AXIS" "closed: $REAL_SHA added t6" "$GOOD_GATE"
+mk_log "$TMP/rot.jsonl" 7200 6
+mk_conf "$TMP/conf-t-off.conf" "$LOW" "$LOWC"
+mk_conf "$TMP/conf-t10.conf" "$LOW" "$LOWC" 'ROTATION_PREFLIGHT_PER_COMMIT=1'
+mk_conf "$TMP/conf-t10-bogus.conf" "$LOW" "$LOWC" 'ROTATION_PREFLIGHT_PER_COMMIT=yes'
+mk_conf "$TMP/conf-t11.conf" "$LOW" "$LOWC" 'ROTATION_BATCH_MAX=3'
+mk_conf "$TMP/conf-t11-bogus.conf" "$LOW" "$LOWC" 'ROTATION_BATCH_MAX=five'
+pf() { printf '"preflight":{"result":"PASS","quick":true,"sha":"%s"}' "$1"; }
+gt() { printf '"gate":{"sha":"%s","pass":1,"fail":0,"skip":0}' "$1"; }
+mk_events 900 preflight.end "$(pf "${T[0]:0:9}")" 800 preflight.end "$(pf "${T[1]}")" 700 preflight.end "$(pf "${T[2]:0:7}")" \
+  600 preflight.end "$(pf "${T[3]}")" 500 preflight.end "$(pf "${T[4]:0:12}")" 400 preflight.end "$(pf "${T[5]}")"
+out=$(CONF="$TMP/conf-t-off.conf" run_gate bash "$GATE" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s\n' "$out" | grep -qE 'TRIG-1[01]'; then
+  ok "82 TRIG-10 / TRIG-11 off by default: no line, exit 0"
+else
+  bad "82 TRIG-10 / TRIG-11 off by default" "exit=$rc out=[$out]"
+fi
+CONF="$TMP/conf-t10.conf" run_case "83 TRIG-10 on: each commit has a preflight.end (short or full sha)" 0 'TRIG-10 PASS commits=6, each with a preflight.end'
+mk_events 900 preflight.end "$(pf "${T[0]}")" 700 preflight.end "$(pf "${T[2]}")" 500 preflight.end "$(pf "${T[4]}")" \
+  400 preflight.end "$(pf "${T[5]}")" 300 preflight.end '"preflight":{"result":"PASS","sha":null}'
+CONF="$TMP/conf-t10.conf" run_case "84 TRIG-10 on: commits without a preflight.end are listed" 1 \
+  "TRIG-10 FAIL 2 of 6 commit\\(s\\) have no preflight.end with their sha: ${T[1]:0:9} ${T[3]:0:9} — "
+CONF="$TMP/conf-t10-bogus.conf" run_case "85 unknown TRIG-10 switch value is a configuration error" 2 'ROTATION_PREFLIGHT_PER_COMMIT must be 0 or 1'
+mk_events 700 gate.end "$(gt "${T[2]:0:9}")" 300 gate.end "$(gt "${T[5]}")"
+CONF="$TMP/conf-t11.conf" run_case "86 TRIG-11 N=3: gates after the 3rd and 6th commit" 0 'TRIG-11 PASS commits=6, largest batch between gates=3 ≤ 3'
+mk_events 900 gate.end "$(gt "${T[0]}")"
+CONF="$TMP/conf-t11.conf" run_case "87 TRIG-11 N=3: five commits since the last gate" 1 \
+  "TRIG-11 FAIL batch over ROTATION_BATCH_MAX=3 without a gate.end: 5 commits ${T[1]:0:9}\\.\\.${T[5]:0:9} \\(no gate.end since\\)"
+mk_events
+CONF="$TMP/conf-t11.conf" run_case "88 TRIG-11 N=3: no gate.end at all" 1 "TRIG-11 FAIL batch over ROTATION_BATCH_MAX=3 without a gate.end: 6 commits ${T[0]:0:9}\\.\\.${T[5]:0:9}"
+CONF="$TMP/conf-t11-bogus.conf" run_case "89 non-integer ROTATION_BATCH_MAX is a configuration error" 2 'ROTATION_BATCH_MAX must be a non-negative integer'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
