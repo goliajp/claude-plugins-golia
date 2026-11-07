@@ -20,7 +20,8 @@
 # Guards: a registered pid is ended only when it is alive and a descendant of
 # the Claude Code process this script runs under — a pid another process took
 # after the shell exited is reported STALE and left alone — and the chain this
-# script runs under is never a victim.
+# script runs under is never a victim. A registration whose label starts with
+# "watchdog" is the manager's watchdog: it spans rounds and is never ended here.
 #
 # Runner jobs: in session mode, every remote.start of this round with no end
 # that registered remote.pid (remote_run.sh does) is ended on its runner by
@@ -92,6 +93,9 @@ for line in open(path, encoding="utf-8"):
     if not isinstance(pid, int) or isinstance(pid, bool):
         continue
     if e.get("kind") == "process.start":
+        # the manager's watchdog registers itself in the lane it watches and outlives the round by design
+        if (proc.get("what") or "").startswith("watchdog"):
+            continue
         live[pid] = proc.get("what") or ""
     elif e.get("kind") == "process.end":
         live.pop(pid, None)

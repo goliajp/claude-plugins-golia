@@ -511,8 +511,10 @@ reg() { printf '{"at":"x","ts":$NOW,"kind":"%s","rotationId":"%s","head":"x","pr
 /bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & other=\$!
 /bin/zsh -c 'true shell-snapshots; bash $RT/kernel/watchdog.sh; :' >/dev/null 2>&1 & wd=\$!
 /bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & lastround=\$!
+/bin/zsh -c 'true shell-snapshots; sleep 300; :' >/dev/null 2>&1 & regwd=\$!
 : > "$REV"
 reg process.start \$mine r-test
+printf '{"at":"x","ts":$NOW,"kind":"process.start","rotationId":"r-test","head":"x","process":{"pid":%s,"what":"watchdog-lane-7"}}\n' "\$regwd" >> "$REV"
 reg process.start \$ended r-test; reg process.end \$ended r-test
 reg process.start $outside r-test
 reg process.start \$lastround r-old
@@ -521,13 +523,13 @@ ROTATION_EVENTS_LOG="$REV" ROTATION_REAP_ROTATION_ID=r-test ROTATION_REAP_REMOTE
   bash "$RT/kernel/kill_stray_shells.sh" > "$RT/reaper.out" 2>&1; echo "rc=\$?" > "$RT/reaper.rc"
 sleep 1
 alive() { kill -0 "\$1" 2>/dev/null && echo alive || echo dead; }
-echo "mine=\$(alive \$mine) ended=\$(alive \$ended) other=\$(alive \$other) watchdog=\$(alive \$wd) lastround=\$(alive \$lastround)"
+echo "mine=\$(alive \$mine) ended=\$(alive \$ended) other=\$(alive \$other) watchdog=\$(alive \$wd) lastround=\$(alive \$lastround) regwd=\$(alive \$regwd)"
 down() { local c; for c in \$(pgrep -P "\$1"); do down "\$c"; done; kill "\$1" 2>/dev/null; }
-down "\$mine"; down "\$ended"; down "\$other"; down "\$wd"; down "\$lastround"
+down "\$mine"; down "\$ended"; down "\$other"; down "\$wd"; down "\$lastround"; down "\$regwd"
 EOF
 tree=$("$RT/claude-sim" "$RT/tree.sh" 2>/dev/null)
-expect_eq "reaper: the registered shell dies; the ended, the unregistered, the earlier round's and the watchdog shell live" \
-  "$tree" "mine=dead ended=alive other=alive watchdog=alive lastround=alive"
+expect_eq "reaper: the registered shell dies; the ended, the unregistered, the earlier round's, the watchdog shell and a registered watchdog live" \
+  "$tree" "mine=dead ended=alive other=alive watchdog=alive lastround=alive regwd=alive"
 expect_eq "reaper: KILL lines name the registered shell and its child only" "$(grep -c '^KILL ' "$RT/reaper.out")" "2"
 expect_has "reaper: the registered pid outside the session is STALE, not killed" "$(cat "$RT/reaper.out")" "STALE $outside"
 expect_eq "reaper: the sleeper outside the session is alive" "$(kill -0 "$outside" 2>/dev/null && echo alive || echo dead)" "alive"
