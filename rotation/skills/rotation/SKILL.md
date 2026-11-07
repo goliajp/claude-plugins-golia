@@ -9,7 +9,7 @@ The round: read `.claude/handoff.md` in full → ship the next items in order �
 
 ## What differs from a normal session
 
-- **You do not decide when to stop.** `trigger.sh self` runs TRIG-1..8 and either writes the row or blocks. A FAIL means keep shipping — not "ask whether to continue", not `trigger.sh manual` (operator-only; refuses without a terminal). Observe-mode lines (`TRIG-n OBSERVE`) do not block.
+- **You do not decide when to stop.** `trigger.sh self` runs TRIG-1..11 and either writes the row or blocks. A FAIL means keep shipping — not "ask whether to continue", not `trigger.sh manual` (operator-only; refuses without a terminal). Observe-mode lines (`TRIG-n OBSERVE`) do not block.
 - **Heavy jobs only through `adapter_run.sh`**: `bash .claude/rotation/adapter_run.sh gate <HEAD>` · `preflight [-q]` · `close-segment <HEAD> plan <verdict.json>` · `bench <HEAD> [segment]`. A hand-written remote invocation leaves no `gate.end` / `remote.*` event; the verdict then shows the gate as **missing** and the round cannot close. Exit 64 = the command claimed success without its record.
 - **Readings are pasted, never typed.** The handoff's `sweep:` line is the output of `ROTATION_SWEEP_LINE_CMD`; TRIG-7 compares it token by token with the stamp. `gate:` is the triple the gate printed. An axes review carries the axis reading's line verbatim.
 - **The trigger section is a contract**, under `## rotate-trigger` (or the project's `ROTATION_TRIGGER_SECTION`): `axis:` (one of `ROTATION_AXES`), `closed:` (≥ `ROTATION_TRIG1_MIN_CLOSED` shas from *this* round, each with what it closed), `gate: N/F/S` with F = 0. No phrase from the TRIG-4 blacklist (`prep work done`, `substantial work`, `complexity`, `ROI`, `sub-milestone`, …).
@@ -17,6 +17,14 @@ The round: read `.claude/handoff.md` in full → ship the next items in order �
 - **Red in the verdict = no close.** Bisect, fix or revert, run the gate again through `adapter_run.sh`. Amber = attribute it in the handoff.
 - **A lane's executor closes with `lane_close.sh`** (`bash .claude/rotation-lanes/<lane>/lane_close.sh`, in the lane's worktree) where the close order says `trigger.sh self`: it merges the base branch, runs the project's close hook, runs the trigger, tags `lane/<lane>/<rid>`, writes the inbox row and records `lane.ready`. Exit 3 = merge conflict: resolve, commit, run it again. The lane that merges tags uses `lane_merge.sh <tag>` (or `--returned <tag> <reason> [<revert>]`), never a hand-written `git merge` (`docs/lanes.md`).
 - **Close order** (`docs/close.md`): end every child process → `close_plan.sh` → run the plan → carry the rest → fill → handoff → `agent_log.sh end <your name> rotation <model>` → `trigger.sh self` → one line, stop. The trigger's reaper ends the shells you registered with `event.sh process.start` and nothing else (not the manager's watchdog, not other agents' shells); a shell you never registered is yours to end by PID first.
+
+## One way out
+
+The round ends one way: `trigger.sh self` (a lane: `lane_close.sh`) passes. Nothing else closes it.
+
+- **Red is not a reason to ask.** A TRIG FAIL or a red line in the close verdict is not something to hand to the manager or the operator for a release, and "the red is attributed" is not a close: attributed red is still red. Fix it, revert the commit that caused it, or keep working until the gate passes.
+- **A blocked trigger does not stop the work.** Keep dispatching and shipping the next items; do not shrink the scope because the close feels near, and do not end the turn to wait for someone to let the round go.
+- **Red this round caused is fixed or reverted this round.** "Still red, reporting it" is not an outcome: a regression the round introduced is bisected to its commit and fixed, or that commit is reverted, before the trigger runs.
 
 ## Bookkeeping the recovery tools depend on
 
