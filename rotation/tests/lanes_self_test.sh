@@ -276,8 +276,34 @@ out=$(cd "$P" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close off the lane's branch (main tree on develop): exit 1" "$rc" 1
 out=$(cd "$PW" && bash .claude/rotation/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close through the first lane's shim: usage (exit 2)" "$rc" 2
+# step 0: the trace check refuses before anything is merged
+PHEAD=$(gw rev-parse HEAD)
+echo t1 > "$PW/t1.txt"; gw add -A; gw commit -q -m "fix: picked from a worker" -m "Agent-Origin: w-pick"
+TSHA=$(gw rev-parse --short=9 HEAD)
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "trace check: an Agent-Origin trailer is refused (exit 1, no tag)" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "trace check: the commit is named" "$out" "^lane_close: commit $TSHA carries a trace:$"
+expect_has "trace check: the trailer line is shown" "$out" '^  3:Agent-Origin: w-pick$'
+expect_not "trace check: nothing merged" "$out" '^lane_close: 1 merge'
+expect_eq "trace check: the lane's HEAD is unchanged" "$(gw rev-parse --short=9 HEAD)" "$TSHA"
+gw reset -q --hard "$PHEAD"
+echo t2 > "$PW/t2.txt"; gw add -A; gw commit -q -m "feat: lane thing" -m "Generated with some tool"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "trace check: 'Generated with' in a message is refused (exit 1)" "$rc" 1
+expect_has "trace check: that line is shown" "$out" '^  3:Generated with some tool$'
+gw reset -q --hard "$PHEAD"
+printf 'ROTATION_HANDOFF_SECTIONS=架构影响|rotate-trigger|下一步\n' >> "$PL/rotation.conf"
+printf '# lane handoff\n\n## rotate-trigger\n\naxis: A\n' > "$PL/handoff.md"
+out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
+expect_eq "handoff check: missing sections are refused (exit 1, no tag)" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "handoff check: the missing titles are listed" "$(printf '%s\n' "$out" | grep -A2 'lacks section')" '^  架构影响$'
+expect_has "handoff check: every missing title, not just the first" "$out" '^  下一步$'
+expect_not "handoff check: a present title is not listed" "$out" '^  rotate-trigger$'
+expect_not "handoff check: nothing merged" "$out" '^lane_close: 1 merge'
+printf '# lane handoff\n\n### 本轮的架构影响\n\nnone\n\n## rotate-trigger\n\naxis: A\n\n**下一步**: x\n' > "$PL/handoff.md"
 out=$(cd "$PW" && STUB_TRIGGER_RC=1 bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?
 expect_eq "lane_close with the trigger blocked: exit 1, no tag" "$rc:$(gp tag -l 'lane/p/*' | wc -l | tr -d ' ')" "1:0"
+expect_has "clean commits and handoff: past step 0 to the merge" "$out" '^lane_close: 1 merge develop into lane/p$'
 expect_has "lane_close blocked: the gate's lines are shown" "$out" 'TRIG-1 FAIL stub'
 rm -f "$PW/.claude/hook-ran"
 out=$(cd "$PW" && bash .claude/rotation-lanes/p/lane_close.sh 2>&1); rc=$?

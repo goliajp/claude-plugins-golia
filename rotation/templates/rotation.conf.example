@@ -73,3 +73,7 @@ ROTATION_WORKER_STALE=1200
 # ROTATION_MERGE_FROM=develop
 # ROTATION_INBOX_FILE=.claude/autorun-inbox.md
 # ROTATION_INBOX_INSERT_LINE=65
+# lanes: lane_close.sh refuses a commit of the round whose message has a line matching this (or
+# ROTATION_AGENT_ORIGIN_PATTERN), and a handoff missing any of these `|`-separated section titles (empty = not checked)
+# ROTATION_TRACE_PATTERN=Co-Authored-By|Generated with|generated with|🤖|[Cc]laude
+# ROTATION_HANDOFF_SECTIONS=
