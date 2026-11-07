@@ -21,7 +21,7 @@
 
 set -u
 
-ROTATION_KERNEL_VERSION="2.0.0"
+ROTATION_KERNEL_VERSION="2.1.0"
 # The rotation.conf format this kernel reads; a conf states it as
 # ROTATION_CONF_KERNEL. Independent of the product version: it rises only
 # when an existing key changes meaning incompatibly, never for a release or
