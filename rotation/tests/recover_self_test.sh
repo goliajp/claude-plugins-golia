@@ -216,6 +216,42 @@ out=$(watch --wake 350); expect_eq "--wake 350: 400 s after a remote.end is a WA
 expect_has "the --wake WAKE counts from the remote.end" "$out" "WAKE remote.end kind=close.checks sha=abc"
 CONF="$TMP/wake.conf" watch --wake 1000 >/dev/null; expect_eq "ROTATION_WAKE_AFTER=1 in the conf is not read: --wake 1000 holds" "$?" "0"
 ROTATION_WAKE_AFTER=1 watch --wake 1000 >/dev/null 2>&1; expect_eq "ROTATION_WAKE_AFTER=1 in the environment is not read: --wake 1000 holds" "$?" "0"
+# an executor.waiting still unmet holds the remote.end WAKE: the executor started a job, then declared it waits
+# for a line in an inbox file; the job's remote.end is not what it waits for
+printf '# inbox\nother line\n' > "$TMP/inbox.md"
+plat_seq() {
+  reset
+  ev 2900 remote.start "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\"}"
+  ev 2886 executor.waiting "\"remote\":{\"log\":\"$TMP/inbox.md\",\"marker\":\"收尾重测.*已结束\"}"
+  ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+}
+plat_seq
+out=$(watch); rc=$?
+expect_eq "executor.waiting unmet, then a remote.end: no WAKE" "$rc" "0"
+expect_not "no remote.end WAKE line while the executor waits on its inbox marker" "$out" "WAKE remote.end"
+expect_has "recover: the waiting is still in force after the remote.end" "$(run "$BIN/recover.sh")" "still waiting=yes · satisfied=no"
+reset
+ev 2900 remote.start "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\"}"
+ev 2886 executor.waiting "\"remote\":{\"log\":\"$TMP/inbox.md\",\"marker\":\"x\",\"host\":\"h\"}"
+ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+expect_has "a remote marker whose probe fails is unknown" "$(GREP_CMD="$TMP/no-such-grep" run "$BIN/recover.sh" 2>/dev/null)" "satisfied=unknown"
+GREP_CMD="$TMP/no-such-grep" watch >/dev/null 2>&1
+expect_eq "executor.waiting that cannot be checked (satisfied unknown) also holds the remote.end WAKE" "$?" "0"
+plat_seq
+printf '收尾重测 r9 已结束\n' >> "$TMP/inbox.md"
+out=$(watch); expect_eq "the awaited inbox line appears: WAKE" "$?" "10"
+expect_has "that WAKE is for the waited-on marker" "$out" "WAKE remote=$TMP/inbox.md is done"
+printf '# inbox\nother line\n' > "$TMP/inbox.md"
+plat_seq
+ev 380 preflight.end '"preflight":{"result":"PASS"}'
+ev 350 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"def\",\"log\":\"$TMP/plat2.log\",\"status\":\"ok\"}"
+out=$(watch); expect_eq "an executor event after the executor.waiting ends it: a later remote.end WAKEs again" "$?" "10"
+expect_has "that WAKE is the remote.end one" "$out" "WAKE remote.end kind=close.plat-test sha=def"
+reset
+ev 2900 remote.start "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\"}"
+ev 400 remote.end "\"remote\":{\"kind\":\"close.plat-test\",\"sha\":\"abc\",\"log\":\"$TMP/plat.log\",\"status\":\"ok\"}"
+out=$(watch); expect_eq "the same remote.end without an executor.waiting: WAKE" "$?" "10"
+expect_has "that WAKE names the ended job" "$out" "WAKE remote.end kind=close.plat-test sha=abc"
 
 reset
 ev 900 agent.start "$(agent w1 worker)"

@@ -11,7 +11,10 @@
 #                             marker is in the log, or every listed worker has an agent.end),
 #                             the executor has recorded nothing since, and --wake seconds passed
 #                             — or the round's last remote.end was followed by no executor event and
-#                             no commit for --wake seconds (a manager.resume restarts that clock)
+#                             no commit for --wake seconds (a manager.resume restarts that clock), unless
+#                             an executor.waiting is in force and its condition is not seen to hold: the
+#                             executor said what it waits for, and a remote job ending is not that
+#                             (a remote.end / gate.end after an executor.waiting leaves it in force)
 #                             — neither of these two while a worker / reviewer / research agent of this
 #                             round still registered as running wrote its transcript within --wake
 #                             seconds: the executor is polling it in a foreground call and records nothing

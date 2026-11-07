@@ -8,7 +8,8 @@ Two entry points, both read-only:
                                   WAKE (10) / STALE (11) / QUOTA (12) / DIRTY (13) / FOREIGN-COMMIT (14) /
                                   MULTI-EXECUTOR (15). --wake is the one wait for both WAKEs on a silent executor:
                                   after a satisfied executor.waiting, and after a remote.end of this round with no
-                                  executor event since (a manager.resume after it restarts that clock)
+                                  executor event since (a manager.resume after it restarts that clock), the
+                                  latter only while no executor.waiting is in force and still unmet
 
 Environment (set by recover.sh / watchdog.sh from lib.sh and the project adapter):
   CLAUDE_CODE_SESSION_ID     the session running this check; RESUME is offered only when it is the session
@@ -488,10 +489,13 @@ def waiting_state(events, probe=True):
     remote = w.get('remote') or spec.get('remote')
     workers = w.get('workers') or spec.get('workers')
     after = acts[i + 1:]
+    # a remote.end / gate.end is written by the job's own wait command, not by the executor deciding anything:
+    # a job ending after the executor declared what it waits for does not answer that declaration
+    ended_job = lambda e: e.get('kind') in ('remote.end', 'gate.end')
     state = {'at': iso(w.get('ts')), 'ts': w.get('ts'), 'remote': remote, 'workers': workers, 'refTs': w.get('ts')}
     if workers:
         ended = lambda e: e.get('kind') == 'agent.end' and (e.get('agent') or {}).get('name') in workers
-        state['pending'] = all(ended(e) for e in after)
+        state['pending'] = all(ended(e) or ended_job(e) for e in after)
         latest = {}
         for e in acts:
             if e.get('kind') in ('agent.start', 'agent.end') and (e.get('agent') or {}).get('name') in workers:
@@ -500,7 +504,7 @@ def waiting_state(events, probe=True):
         if after:
             state['refTs'] = after[-1].get('ts')
     elif remote:
-        state['pending'] = not after
+        state['pending'] = all(ended_job(e) for e in after)
         seen = marker_seen(remote.get('log'), remote.get('marker'), remote.get('host')) if (probe and state['pending']) else None
         state['satisfied'] = seen
     else:
@@ -800,9 +804,12 @@ def watch(stale, wake, dirty_age, floor):
         what = f"workers={','.join(w['workers'])}" if w.get('workers') else f"remote={w['remote'].get('log')}"
         return 'WAKE', f"WAKE {what} is done, executor silent {now - w['refTs']} s since {iso(w['refTs'])} · agent={who}"
 
-    # the same without an executor.waiting on record: a remote job of this round ended and nothing followed
+    # the same without an executor.waiting on record: a remote job of this round ended and nothing followed.
+    # an executor.waiting still in force whose condition has not been seen to hold (False, or None when it cannot
+    # be checked) says what the executor waits for, and a remote.end of some other job is not it
+    held = bool(w and w['pending'] and w.get('satisfied') is not True)
     re_ = remote_end_state(events, rnd['ts'])
-    if re_ and re_['pending'] and not live and now - (re_['refTs'] or 0) >= wake:
+    if re_ and re_['pending'] and not held and not live and now - (re_['refTs'] or 0) >= wake:
         since = f"manager.resume {iso(re_['refTs'])}" if re_['resumed'] else f"remote.end {re_['at']}"
         return 'WAKE', (f"WAKE remote.end kind={re_['kind']} sha={re_['sha']} log={re_['log']} is on record and no executor event followed "
                         f"for {now - re_['refTs']} s since {since} · agent={who}")
