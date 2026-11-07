@@ -12,6 +12,9 @@
 #                     [remote.pid=int: remote.pidStart= remote.launcher=int:]  — remote_run.sh adds these three
 #   remote.end        remote.log= (or remote.kind= + remote.sha=)  [remote.status=ok|fail|abandoned]
 #   executor.waiting  remote.log= remote.marker= [remote.host=]   or   workers=list:<name>,<name>
+#                     and/or waiting.window=<name>: held while that window is open (window.sh)
+#   window.open / window.extend   window.name= window.until=int:<epoch> window.untilAt=<ISO> [window.host= window.reason=]
+#   window.close      window.name= [window.reason=]          — window.sh writes these three; call it, not this
 #   quota.hit         quota.resets=<epoch | ISO time | HH:MM local>  [quota.agent=<name or id>]
 #   process.start     process.pid=int:<pid> [process.what=<label>]  — a shell this round started
 #                     (`process.pid=int:$$` at the top of a background command); the trigger's
@@ -72,8 +75,17 @@ if kind == 'remote.start' and not (remote.get('kind') and remote.get('log')):
     fail('remote.start needs remote.kind= and remote.log=')
 if kind == 'remote.end' and not (remote.get('log') or (remote.get('kind') and remote.get('sha'))):
     fail('remote.end needs remote.log= (or remote.kind= and remote.sha=)')
-if kind == 'executor.waiting' and not ((remote.get('log') and remote.get('marker')) or doc.get('workers')):
-    fail('executor.waiting needs remote.log= and remote.marker=, or workers=list:<names>')
+waiting = doc.get('waiting') if isinstance(doc.get('waiting'), dict) else {}
+if kind == 'executor.waiting' and not ((remote.get('log') and remote.get('marker')) or doc.get('workers') or waiting.get('window')):
+    fail('executor.waiting needs remote.log= and remote.marker=, or workers=list:<names>, or waiting.window=<name>')
+if kind.startswith('window.'):
+    win = doc.get('window') if isinstance(doc.get('window'), dict) else {}
+    if kind not in ('window.open', 'window.extend', 'window.close'):
+        fail(f"unknown window kind '{kind}'")
+    if not win.get('name'):
+        fail(f'{kind} needs window.name=')
+    if kind != 'window.close' and (not isinstance(win.get('until'), int) or isinstance(win.get('until'), bool)):
+        fail(f'{kind} needs window.until=int:<epoch>')
 if kind == 'quota.hit' and (not isinstance(doc.get('quota'), dict) or doc['quota'].get('resets') in (None, '')):
     fail('quota.hit needs quota.resets=')
 if kind in ('process.start', 'process.end'):

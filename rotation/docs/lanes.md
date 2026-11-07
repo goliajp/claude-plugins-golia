@@ -53,7 +53,8 @@ The manager runs the lane's shims for the lane: `manager_log.sh start`, `doctor.
 Every lane on one page, and one command for all of them:
 
 ```
-bash .claude/rotation/lanes.sh [--json]          # one line per lane: branch, rid, head, last event, running executors, manager.active
+bash .claude/rotation/lanes.sh [--json]          # one line per lane: branch, rid, head, last event, running executors, manager.active;
+                                                 # then `windows:` the open windows (not in --json)
 bash .claude/rotation/doctor.sh --all            # each lane's doctor under `== lane <name> ==`; exit = the highest
 bash .claude/rotation/recover.sh --all [--json] [--no-probe]
 bash .claude/rotation/watchdog.sh --all [--interval …] [--stale …] [--wake …] [--dirty …] [--once]

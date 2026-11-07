@@ -21,7 +21,7 @@ The round: read `.claude/handoff.md` in full → ship the next items in order �
 ## Bookkeeping the recovery tools depend on
 
 - Register every agent you spawn the moment `Agent` returns its id: `ROTATION_AGENT_ID=<id> ROTATION_AGENT_WORKTREE=<path> bash .claude/rotation/agent_log.sh start <name> worker <model> "<task>"`; `end` when done (`ROTATION_AGENT_STATUS=abandoned` when given up). Without the id it cannot be resumed after a restart.
-- Before ending a turn to wait: `bash .claude/rotation/event.sh executor.waiting remote.log=<log> 'remote.marker=<regexp>'` or `… executor.waiting workers=list:<name>,<name>`.
+- Before ending a turn to wait: `bash .claude/rotation/event.sh executor.waiting remote.log=<log> 'remote.marker=<regexp>'` or `… executor.waiting workers=list:<name>,<name>`, or `… executor.waiting waiting.window=<name>` for a window (`window.sh status`) another job holds.
 - Every background shell you start begins with `bash .claude/rotation/event.sh process.start process.pid=int:$$ process.what=<label>`; `… process.end process.pid=int:<pid>` when it finished on its own. Only registered pids are reaped at the trigger.
 - A rate limit you stop for: `event.sh quota.hit quota.resets=<time> quota.agent=<id>`.
 - After "Session restarted": `bash .claude/rotation/recover.sh` first; continue non-isolated agents by `SendMessage <id>`; a worktree worker is re-spawned fresh from its branch `worktree-agent-<id>` — **never `SendMessage` a worktree agent** (the sender's cwd becomes that worktree, main-tree git is refused until the agent's next completion); never restart a remote job whose end is not on record while its log has no terminal marker.

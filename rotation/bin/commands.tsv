@@ -19,6 +19,10 @@ lane	enter	lane_enter.sh	-	no	env	cwd	-	NAME [--share DIR]...	inside a lane's wo
 lane	close	lane_close.sh	-	no	env	conf	lane_close.sh		close the lane's round: merge the base, hook, trigger, tag, inbox row, lane.ready
 lane	merge	lane_merge.sh	-	no	env	conf	lane_merge.sh	TAG | --returned TAG REASON [REVERT]	merge a lane's tag (or hand it back)
 lane	return	lane_merge.sh	--returned	no	env	conf	-	TAG REASON [REVERT]	hand a lane's tag back (lane.returned)
+window	open	window.sh	open	no	env	conf	window.sh	NAME --until T [--host H] [--reason R]	open a window on a host (window.open; an open window is extended)
+window	extend	window.sh	extend	no	env	conf	-	NAME --until T [--host H] [--reason R]	move an open window's end (window.extend)
+window	close	window.sh	close	no	env	conf	-	NAME [--reason R]	close a window (window.close)
+window	status	window.sh	status	yes	env	conf	-	[NAME]	the open windows of every lane's log, exit 0 open / 1 closed
 event	add	event.sh	-	no	env	conf	event.sh	KIND [key=value]...	append one event to events.jsonl
 agent	start	agent_log.sh	start	no	env	conf	agent_log.sh	NAME ROLE MODEL [TASK] [REPORT]	record an agent's start
 agent	end	agent_log.sh	end	no	env	conf	-	NAME ROLE MODEL [TASK] [REPORT]	record an agent's end

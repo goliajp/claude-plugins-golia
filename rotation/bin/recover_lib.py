@@ -6,10 +6,12 @@ Two entry points, both read-only:
   watch --stale S --wake S --dirty S --floor TS
                                   one watchdog pass: prints `OK` (exit 0) or one reason line
                                   WAKE (10) / STALE (11) / QUOTA (12) / DIRTY (13) / FOREIGN-COMMIT (14) /
-                                  MULTI-EXECUTOR (15). --wake is the one wait for both WAKEs on a silent executor:
+                                  MULTI-EXECUTOR (15) / WINDOW-OVERDUE (16). --wake is the one wait for both WAKEs on a silent executor:
                                   after a satisfied executor.waiting, and after a remote.end of this round with no
                                   executor event since (a manager.resume after it restarts that clock), the
                                   latter only while no executor.waiting is in force and still unmet
+  windows [NAME] [--json]         the open windows (window.open / extend / close of every lane's log): `OPEN name=…
+                                  host=… until=… overdue=yes|no` per open window, or `CLOSED`; exit 0 one is open, 1 none
 
 Environment (set by recover.sh / watchdog.sh from lib.sh and the project adapter):
   CLAUDE_CODE_SESSION_ID     the session running this check; RESUME is offered only when it is the session
@@ -17,6 +19,8 @@ Environment (set by recover.sh / watchdog.sh from lib.sh and the project adapter
                              spawned it, so SendMessage reaches it from there and its --resume, nowhere else)
   ROTATION_REPO              the main working tree
   ROTATION_EVENTS_LOG        events.jsonl
+  ROTATION_WINDOW_LOGS       `:`-separated events logs the window.* events are read from (every lane's: a window is a
+                             host's, and a lane waits on one Channel 1 opened); ROTATION_EVENTS_LOG is always read
   ROTATION_ROTATIONS_LOG     rotations.jsonl
   ROTATION_MANAGER_ACTIVE    the manager marker file; FOREIGN-COMMIT is checked only while it exists
   ROTATION_AGENT_ORIGIN_PATTERN  the commit-message pattern of agent-landed commits
@@ -76,7 +80,8 @@ ORIGIN = os.environ.get('ROTATION_AGENT_ORIGIN_PATTERN') or os.environ.get('HARD
 # from a registered, running executor (FOREIGN-COMMIT checks only then)
 MANAGER_ACTIVE = os.environ.get('ROTATION_MANAGER_ACTIVE', '')
 CURRENT_SESSION = os.environ.get('CLAUDE_CODE_SESSION_ID') or None
-EXIT = {'WAKE': 10, 'STALE': 11, 'QUOTA': 12, 'DIRTY': 13, 'FOREIGN-COMMIT': 14, 'MULTI-EXECUTOR': 15}
+WINDOW_LOGS = [p for p in (os.environ.get('ROTATION_WINDOW_LOGS') or '').split(':') if p]
+EXIT = {'WAKE': 10, 'STALE': 11, 'QUOTA': 12, 'DIRTY': 13, 'FOREIGN-COMMIT': 14, 'MULTI-EXECUTOR': 15, 'WINDOW-OVERDUE': 16}
 
 
 def read_jsonl(path):
@@ -447,6 +452,54 @@ def open_tool_call(path):
     return None
 
 
+def window_states(now):
+    """every window named by a window.* event of any lane's log, by name: open / host / until (epoch) / reason, the
+    last event on it, and `own` when its last open is in this lane's log (that lane answers for it running over).
+    a second open of an open window moves it like an extend; an extend or close of a window not open is ignored"""
+    evs, seen = [], set()
+    own_path = os.path.realpath(EVENTS)
+    for path in [EVENTS] + WINDOW_LOGS:
+        rp = os.path.realpath(path)
+        if rp in seen:
+            continue
+        seen.add(rp)
+        evs += [dict(e, _own=rp == own_path) for e in read_jsonl(path)
+                if (e.get('kind') or '').startswith('window.') and isinstance(e.get('window'), dict)]
+    evs.sort(key=lambda e: e.get('ts') or 0)
+    states = {}
+    for e in evs:
+        w, k = e['window'], e['kind']
+        name = w.get('name')
+        if not name:
+            continue
+        cur = states.get(name)
+        if k == 'window.open':
+            if not (cur and cur['open']):
+                cur = states[name] = {'name': name, 'open': True, 'host': None, 'reason': None, 'until': None,
+                                      'openedTs': e.get('ts'), 'closedTs': None}
+            cur['own'] = e['_own']
+        elif k in ('window.extend', 'window.close') and cur and cur['open']:
+            if k == 'window.close':
+                cur.update(open=False, closedTs=e.get('ts'))
+        else:
+            continue
+        for f in ('host', 'reason'):
+            if w.get(f):
+                cur[f] = w[f]
+        if k != 'window.close' and isinstance(w.get('until'), int) and not isinstance(w.get('until'), bool):
+            cur['until'] = w['until']
+        cur['lastKind'], cur['lastTs'] = k, e.get('ts')
+    for s in states.values():
+        s['overdue'] = bool(s['open'] and s['until'] is not None and now > s['until'])
+        s.update(untilAt=iso(s['until']), openedAt=iso(s['openedTs']), closedAt=iso(s['closedTs']), lastAt=iso(s['lastTs']))
+    return states
+
+
+def window_line(s):
+    return (f"OPEN name={s['name']} host={s['host'] or '-'} until={s['untilAt'] or '-'} overdue={'yes' if s['overdue'] else 'no'}"
+            if s['open'] else f"CLOSED name={s['name']}")
+
+
 def worker_states(agents, now, events, round_ts):
     """every agent of this round still registered as running that is not the executor or the manager: the ones
     the executor is waiting on. each gets its transcript state; a dead? one also gets relayedTs, the last
@@ -460,11 +513,16 @@ def worker_states(agents, now, events, round_ts):
     wi = last_index(acts, 'executor.waiting')
     waited = acts[wi] if wi is not None else {}
     waited_on = waited.get('workers') or (waited.get('waiting') or {}).get('workers') or []
+    # the executor waits for a window that is still open: its workers wait with it, and a silent transcript is that wait
+    ws = waiting_state(events, probe=False)
+    held_by = ws['window'] if ws and ws['pending'] and ws.get('windowOpen') else None
     out = []
     for a in agents:
         if a['status'] != 'running' or not a['inRound'] or a['role'] in ('rotation', 'manager'):
             continue
         t = transcript_state(a, a.get('managerSession') or fallback, now)
+        if t['state'] == 'dead?' and held_by and (not ws.get('workers') or a['name'] in ws['workers']):
+            t['state'], t['window'] = 'waiting', held_by
         if t['state'] == 'dead?':
             t['relayedTs'] = max((r for r in resumes if r >= t['mtime'] + WORKER_STALE), default=None)
             reasons = []
@@ -479,7 +537,10 @@ def worker_states(agents, now, events, round_ts):
 
 
 def waiting_state(events, probe=True):
-    """the last executor.waiting, whether the executor has moved since, and whether what it waits for has happened"""
+    """the last executor.waiting, whether the executor has moved since, and whether what it waits for has happened.
+    waiting.window=<name>: not satisfied while that window is open (any lane's log); its close (or no open window of
+    that name) satisfies it, together with the remote / workers condition when one is given too, and the --wake
+    clock then runs from the close"""
     acts = executor_events(events)
     i = last_index(acts, 'executor.waiting')
     if i is None:
@@ -489,10 +550,13 @@ def waiting_state(events, probe=True):
     remote = w.get('remote') or spec.get('remote')
     workers = w.get('workers') or spec.get('workers')
     after = acts[i + 1:]
-    # a remote.end / gate.end is written by the job's own wait command, not by the executor deciding anything:
-    # a job ending after the executor declared what it waits for does not answer that declaration
-    ended_job = lambda e: e.get('kind') in ('remote.end', 'gate.end')
-    state = {'at': iso(w.get('ts')), 'ts': w.get('ts'), 'remote': remote, 'workers': workers, 'refTs': w.get('ts')}
+    window = spec.get('window') or (w.get('window') if isinstance(w.get('window'), str) else None)
+    # a remote.end / gate.end is written by the job's own wait command, a window.* by the job holding the window,
+    # not by the executor deciding anything: such a record after the executor declared what it waits for does not
+    # answer that declaration
+    ended_job = lambda e: e.get('kind') in ('remote.end', 'gate.end') or (e.get('kind') or '').startswith('window.')
+    state = {'at': iso(w.get('ts')), 'ts': w.get('ts'), 'remote': remote, 'workers': workers, 'window': window,
+             'refTs': w.get('ts')}
     if workers:
         ended = lambda e: e.get('kind') == 'agent.end' and (e.get('agent') or {}).get('name') in workers
         state['pending'] = all(ended(e) or ended_job(e) for e in after)
@@ -508,8 +572,19 @@ def waiting_state(events, probe=True):
         seen = marker_seen(remote.get('log'), remote.get('marker'), remote.get('host')) if (probe and state['pending']) else None
         state['satisfied'] = seen
     else:
-        state['pending'] = not after
+        state['pending'] = all(ended_job(e) for e in after) if window else not after
         state['satisfied'] = None
+    if window:
+        ws = window_states(int(time.time())).get(window)
+        state['windowOpen'] = bool(ws and ws['open'])
+        if state['windowOpen']:
+            state['satisfied'] = False
+        else:
+            closed = ws['closedTs'] if ws else None
+            if closed and closed > (state['refTs'] or 0):
+                state['refTs'] = closed
+            if not (workers or remote):
+                state['satisfied'] = True
     return state
 
 
@@ -651,6 +726,7 @@ def build_scene(probe):
         'remotes': open_remotes(events, probe),
         'remoteEnd': remote_end_state(events, rnd['ts']),
         'waiting': waiting_state(events, probe), 'quota': quota_state(events, now),
+        'windows': sorted(window_states(now).values(), key=lambda x: x['name']),
         'workers': worker_states(agents, now, events, rnd['ts']), 'workerStale': WORKER_STALE,
         'probe': run_probe() if probe else None,
     }
@@ -699,6 +775,10 @@ def print_scene(s):
           f" last={a['lastAt']} ({ago(a.get('lastTs'), now)}){extra}")
     for a in s['workers']:
         t = a['transcript']
+        if t['state'] == 'waiting':
+            p(f"  waiting {a['name']}: its transcript has not been written for {t['age'] // 60} min, and the executor waits "
+              f"for window {t['window']}, still open: not dead?")
+            continue
         if t['state'] != 'dead?':
             continue
         if t.get('maybeWaiting'):
@@ -755,11 +835,17 @@ def print_scene(s):
         p('last remote.end: none this round')
     w = s['waiting']
     if w:
-        what = f"workers {','.join(w['workers'])}" if w.get('workers') else f"remote {json.dumps(w.get('remote'), ensure_ascii=False)}"
+        what = f"workers {','.join(w['workers'])}" if w.get('workers') else f"remote {json.dumps(w.get('remote'), ensure_ascii=False)}" if w.get('remote') else ''
+        if w.get('window'):
+            what = (what + ' and ' if what else '') + f"window {w['window']} ({'open' if w.get('windowOpen') else 'closed'})"
         sat = {True: 'yes', False: 'no', None: 'unknown'}[w['satisfied']]
         p(f"executor.waiting: {w['at']} for {what} · still waiting={'yes' if w['pending'] else 'no'} · satisfied={sat}")
     else:
         p('executor.waiting: none')
+    opened = [x for x in s['windows'] if x['open']]
+    p(f"open windows: {len(opened)}")
+    for x in opened:
+        p(f"  {window_line(x)} reason={x['reason'] or '-'} opened={x['openedAt']} last={x['lastKind']}@{x['lastAt']}")
     q = s['quota']
     if q:
         p(f"quota.hit: {q['at']} agent={q['agent'] or '—'} resets={q['resetsAt'] or q['resets']} · due={'yes' if q['due'] else 'no'}"
@@ -793,6 +879,15 @@ def watch(stale, wake, dirty_age, floor):
     if q and q['pending'] and q['due']:
         return 'QUOTA', f"QUOTA resets={q['resetsAt']} passed, no event since {q['at']} · agent={q['agent'] or who}"
 
+    # a window this lane opened whose end passed --wake seconds ago with no extend or close: whoever holds it has
+    # stopped saying how long, and every lane waiting on it waits blind
+    wins = window_states(now)
+    late = [x for x in wins.values() if x['open'] and x.get('own') and x['until'] is not None and now - x['until'] >= wake]
+    if late:
+        x = min(late, key=lambda x: x['until'])
+        return 'WINDOW-OVERDUE', (f"WINDOW-OVERDUE name={x['name']} host={x['host'] or '-'} until={x['untilAt']} passed {now - x['until']} s ago, "
+                                  f"no extend or close since {x['lastKind']} {x['lastAt']} · close it or extend it (window.sh) · agent={who}")
+
     # a worker / reviewer / research agent of this round still registered as running whose transcript was written
     # within --wake seconds: the executor is waiting on it in a foreground call, which records no event and leaves
     # the executor's own transcript untouched, so its silence is no stop
@@ -801,7 +896,9 @@ def watch(stale, wake, dirty_age, floor):
 
     w = waiting_state(events)
     if w and w['pending'] and w['satisfied'] and not live and now - (w['refTs'] or 0) >= wake:
-        what = f"workers={','.join(w['workers'])}" if w.get('workers') else f"remote={w['remote'].get('log')}"
+        what = ' '.join(x for x in (f"workers={','.join(w['workers'])}" if w.get('workers') else '',
+                                    f"remote={w['remote'].get('log')}" if w.get('remote') else '',
+                                    f"window={w['window']}" if w.get('window') else '') if x)
         return 'WAKE', f"WAKE {what} is done, executor silent {now - w['refTs']} s since {iso(w['refTs'])} · agent={who}"
 
     # the same without an executor.waiting on record: a remote job of this round ended and nothing followed.
@@ -848,6 +945,11 @@ def watch(stale, wake, dirty_age, floor):
     # a running worker's transcript write is a sign of life as much as an event or a commit
     marks = [(act['what'], act['ts'] or 0)] + [(f"transcript of {a['name']}", a['transcript']['mtime'])
                                                for a in workers if a['transcript']['mtime'] is not None]
+    # the executor waiting on an open window is waiting as declared, up to the window's end; past it WINDOW-OVERDUE is
+    # its holder's to answer
+    ws = wins.get(w['window']) if w and w['pending'] and w.get('windowOpen') else None
+    if ws:
+        marks.append((f"window {ws['name']} open until {ws['untilAt']}", min(now, ws['until'] if ws['until'] is not None else now)))
     what, last = max(marks, key=lambda m: m[1])
     ref = max(last, floor)
     if ref and now - ref >= stale:
@@ -869,7 +971,24 @@ def main(argv):
         reason, line = watch(int(opt['--stale']), int(opt['--wake']), int(opt['--dirty']), int(opt.get('--floor', 0)))
         print(line)
         return EXIT[reason] if reason else 0
-    print('usage: recover_lib.py recover [--json] [--no-probe] | watch --stale S --wake S --dirty S [--floor TS]', file=sys.stderr)
+    if argv[:1] == ['windows']:
+        rest = [a for a in argv[1:] if a != '--json']
+        if len(rest) > 1:
+            print('usage: recover_lib.py windows [NAME] [--json]', file=sys.stderr)
+            return 2
+        st = window_states(int(time.time()))
+        if rest:
+            s = st.get(rest[0]) or {'name': rest[0], 'open': False}
+            rows, is_open = [s], s['open']
+        else:
+            rows = sorted((s for s in st.values() if s['open']), key=lambda s: s['name'])
+            is_open = bool(rows)
+        if '--json' in argv:
+            print(json.dumps(rows[0] if rest else rows, ensure_ascii=False))
+        else:
+            print('\n'.join(window_line(s) for s in rows) if rows else 'CLOSED')
+        return 0 if is_open else 1
+    print('usage: recover_lib.py recover [--json] [--no-probe] | watch --stale S --wake S --dirty S [--floor TS] | windows [NAME] [--json]', file=sys.stderr)
     return 2
 
 

@@ -337,6 +337,16 @@ autorun_record_event() {
   autorun_after_write
 }
 
+# Every lane's events log, `:`-separated, this lane's first: window.* events are read across lanes, since a
+# window belongs to a host and a lane waits on one another lane opened (recover_lib.py ROTATION_WINDOW_LOGS).
+autorun_window_logs() {
+  local f out="$EVENTS_LOG"
+  for f in "$CLAUDE_DIR/rotation-state/events.jsonl" "$CLAUDE_DIR"/rotation-state/lanes/*/events.jsonl; do
+    [ -f "$f" ] && out="$out:$f"
+  done
+  printf '%s\n' "$out"
+}
+
 # Last `trigger=self` row for this project from rotations.jsonl, as
 # `ts<TAB>prevHead`.  Empty when no such row exists (cold start).
 # Single source of truth: trig_gate.sh sources this instead of carrying
