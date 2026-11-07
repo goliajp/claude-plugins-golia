@@ -21,6 +21,7 @@
 #   8  blacklist phrase                  → exit 1, TRIG-4 FAIL
 #   9  8th consecutive same-axis, no review → exit 1, TRIG-5 FAIL
 #  10  same, with axes-review:           → exit 0, TRIG-5 PASS
+#  10b single-axis lane, eight rounds     → exit 0, TRIG-5 PASS (nothing to rotate to)
 #  11  a stamp missing                    → exit 1, TRIG-6 FAIL
 #  12  a stamp from an earlier session    → exit 1, TRIG-6 FAIL
 #  13  a stamp written against a dirty tree → exit 1, TRIG-6 FAIL
@@ -315,6 +316,11 @@ run_case "9 axis skew unsettled" 1 'TRIG-5 FAIL'
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" \
   "axes-review: E still 0%; C closed; D framing only. $READING_LINE"
 run_case "10 axis skew settled" 0 'TRIG-5 PASS'
+
+# 10b — a single-axis lane: eight rounds on its only axis is not a skew, with or without a review.
+mk_conf "$TMP/conf-one-axis.conf" 'ROTATION_AXES=A'
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
+CONF="$TMP/conf-one-axis.conf" run_case "10b single axis never skews" 0 'TRIG-5 PASS.*single axis'
 
 # ── TRIG-6 — the stamps ───────────────────────────────────────────────
 mk_log "$TMP/rot.jsonl" 7200 12
