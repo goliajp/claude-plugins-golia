@@ -11,7 +11,7 @@
 #      the state (a dashboard) is refreshed;
 #   2. while an intent is pending — trigger.sh wrote .claude/autorun-intent
 #      (rotation_id, single line) and appended the rotations.jsonl row for
-#      the same rid — the INV-1..5 gate (check.sh) runs at every turn end:
+#      the same rid — the INV-1..6 gate (check.sh) runs at every turn end:
 #      green consumes the intent, red keeps it so the next turn end retries
 #      once the agent has fixed the failed invariant (saved the handoff,
 #      committed the tree) without re-running trigger.sh.
@@ -24,7 +24,7 @@
 # FAIL → the intent would never be consumed. INV-5's true call-site is
 # the self-test (which simulates duplicate rids explicitly); the
 # stop-hook path must omit the rid → INV-5 SKIPs. See README
-# §"INV-1..5 spec" for full rationale.
+# §"INV-1..6 spec" for full rationale.
 #
 # Always exits 0: a hook failure must never break the user's turn.
 
@@ -57,12 +57,12 @@ if [ -z "$rid" ]; then
   exit 0
 fi
 
-# Run the INV-1..5 pre-act gate. Pass NO rid — see header comment for
+# Run the INV-1..6 pre-act gate. Pass NO rid — see header comment for
 # why (INV-5 would otherwise always FAIL since trigger.sh already
 # appended the rid to jsonl before this hook ran).
 if "$SCRIPT_DIR/check.sh" >&2; then
   rm -f "$INTENT_FILE"
-  echo "stop_hook: rotation $rid green · INV-1..5 pass · intent consumed" >&2
+  echo "stop_hook: rotation $rid green · INV-1..6 pass · intent consumed" >&2
 else
   # Red: leave intent in place so the agent can retry next turn-end
   # after fixing the failed INV (typically: re-save handoff, commit

@@ -90,7 +90,7 @@ expect_eq "main event: in the main lane's log, no lane field" "$(grep -c 'in-mai
 # ── hooks: the main lane's hook serves the lanes ─────────────────────────
 henv() { ( cd "$REPO" && env CLAUDE_PLUGIN_ROOT="$ROOT" CLAUDE_PROJECT_DIR="$REPO" CLAUDE_CODE_SESSION_ID=sess-L "$@" ); }
 stop_payload() { printf '{"session_id":"s1","hook_event_name":"Stop","stop_hook_active":false}'; }
-# the lane's intent with a handoff that passes INV-1..5, the main lane with none
+# the lane's intent with a handoff that passes INV-1..6, the main lane with none
 printf 'r-lane-1\n' > "$LANE/autorun-intent"
 printf '# lane handoff\n\nHEAD %s\n\n## rotate-trigger\n\naxis: A\nclosed: %s first\ngate: 1/0/0\n' "$SHA" "$SHA" > "$LANE/handoff.md"
 printf '{"rotationId":"r-lane-1","ts":1,"trigger":"self","project":"repo","prevHead":"%s"}\n' "$SHA" > "$REPO/.claude/rotation-state/lanes/b/rotations.jsonl"

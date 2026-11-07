@@ -7,7 +7,7 @@ A long autonomous run is split into *rounds*. A round is one session's worth of 
 In scope:
 
 - **When a round may close** — the trigger gate TRIG-1..8 (`trigger.sh self`): enough work, a plausible duration, a handoff with content, no procrastination wording, an axes review when one axis has run too long, fresh stamps from this round's source, a sweep line that matches its stamp, a gate that actually ran. [gates.md](gates.md)
-- **Whether a triggered round may proceed** — the turn-end gate INV-1..5 (the `Stop` hook): handoff fresh and real, tree clean, gate reading not regressed, rotation id unique. [gates.md](gates.md)
+- **Whether a triggered round may proceed** — the turn-end gate INV-1..6 (the `Stop` hook): handoff fresh and real, tree clean, gate reading not regressed, rotation id unique, no agent worktree left without its agent. [gates.md](gates.md)
 - **What the close re-runs** — the close planner: a rules table, a diff per check from its stamp's commit to HEAD, a verdict with a release form. [close.md](close.md)
 - **Who does what** — one manager session, one executor per round, the executor's own workers. [roles.md](roles.md)
 - **Interruption** — events on disk, a recovery page, a watchdog whose exit code is the notification. [recovery.md](recovery.md)
@@ -31,7 +31,7 @@ Out of scope, on purpose:
 | stamp | `<name>-latest.json` a check writes with the sha it measured and a verdict; the only evidence the gates accept |
 | gate (the project's) | the project's conformance run; prints `N pass / F fail / S skip`, records `gate.end` |
 | sweep | the project's main instrument (a test-suite sweep, say); its stamp is what TRIG-7 re-derives the `sweep:` line from |
-| intent | `.claude/autorun-intent`, written by an accepted trigger, consumed by the Stop hook once INV-1..5 are green |
+| intent | `.claude/autorun-intent`, written by an accepted trigger, consumed by the Stop hook once INV-1..6 are green |
 | base branch | the branch worktrees are measured against (`ROTATION_BASE_BRANCH`, else the main tree's current branch) |
 
 Three layers of agents, each with a different reach:

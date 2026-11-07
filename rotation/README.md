@@ -10,7 +10,7 @@ The kernel knows no project. A project plugs in through three files it owns (`pr
 |---|---|
 | [docs/protocol.md](docs/protocol.md) | scope and non-goals, the three roles, the five properties and what holds each up, where files live |
 | [docs/data.md](docs/data.md) | the data contract: `rotations.jsonl`, `events.jsonl`, stamps, the handoff's trigger section, the rules table, the verdict |
-| [docs/gates.md](docs/gates.md) | the trigger gate TRIG-1..8 (every threshold as its `rotation.conf` key) and the turn-end gate INV-1..5 |
+| [docs/gates.md](docs/gates.md) | the trigger gate TRIG-1..8 (every threshold as its `rotation.conf` key) and the turn-end gate INV-1..6 |
 | [docs/close.md](docs/close.md) | the close: plan, run, carry, fill, release forms |
 | [docs/roles.md](docs/roles.md) | the manager's loop, red lines, watchdog table and report checks; the executor's duties and report; workers |
 | [docs/recovery.md](docs/recovery.md) | `recover.sh`, `watchdog.sh`, the hooks, the reaper, and the cross-session facts the protocol is written around |
@@ -73,7 +73,7 @@ Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256 prefix>` means the project ca
 | Piece | Entry | Runs |
 |---|---|---|
 | Trigger gate TRIG-1..8 | `trigger.sh self` → `trig_gate.sh` | at the end of a round, by the executor; exit 0 writes the `rotations.jsonl` row, archives the handoff and sets the intent; FAIL = keep working |
-| Turn-end gate INV-1..5 | `Stop` hook → `stop_hook.sh` → `check.sh` | at every turn end while an intent is pending; green consumes the intent, red keeps it for the next turn end |
+| Turn-end gate INV-1..6 | `Stop` hook → `stop_hook.sh` → `check.sh` | at every turn end while an intent is pending; green consumes the intent, red keeps it for the next turn end |
 | Close planner | `close_plan.sh [<prev> [<head>]]`, `close_verdict_fill.sh <rid>`, `carry_stamp.sh` | at close: per check, diff from its stamp's sha to HEAD against its trigger paths → run or carry; the verdict `<rid>.verdict.md/.json` in `ROTATION_VERDICT_DIR` |
 | Adapter commands | `adapter_run.sh gate\|preflight\|close-segment\|bench …` | the kernel's only call site for the project's heavy commands; exit 0 without the contract's terminal line and events is refused (exit 64) |
 | Onboarding | `onboard_check.sh [--lane <name>]` | while wiring a project (`/rotation:init`); `doctor.sh` re-runs steps 3, 5 and 7 as `plan.queue`, `plan.l4`, `plan.handoff` |
@@ -89,7 +89,7 @@ Last line `DOCTOR PASS kernel=<x.y.z> conf=<sha256 prefix>` means the project ca
 
 `hooks/hooks.json` registers three hooks; all run in the session's working directory and find the project root with `git rev-parse --show-toplevel`.
 
-- `Stop` → `bin/stop_hook.sh`: runs the project's after-write hook, then the INV-1..5 gate while an intent is pending. Always exits 0.
+- `Stop` → `bin/stop_hook.sh`: runs the project's after-write hook, then the INV-1..6 gate while an intent is pending. Always exits 0.
 - `SessionStart` (`startup` and `resume`) → `bin/session_start_hook.sh`: writes `kernel.path`; on `resume`, while `manager.active` exists, prints the recovery page into the session.
 - `SubagentStop` → `bin/subagent_stop_hook.sh`: when the stopping subagent's id is one the session registered through `agent_log.sh`, records `agent.stop` for the round's executor or one `agent.end` for a worker — the mechanical event the watchdog's WAKE reads. Unknown ids write nothing.
 

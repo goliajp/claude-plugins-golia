@@ -47,7 +47,7 @@ trigger	-	trigger.sh	-	no	env	conf	-		the same as trigger manual
 trigger	self	trigger.sh	self	no	env	conf	trigger.sh		the executor's trigger, gated by TRIG-1..n
 trigger	manual	trigger.sh	manual	no	env	conf	-		the operator's trigger (needs a terminal; never run by a model)
 trigger	gate	trig_gate.sh	-	no	env	conf	trig_gate.sh		the trigger gate alone, nothing recorded
-trigger	check	check.sh	-	no	env	conf	check.sh	[RID]	the turn-end gate INV-1..5
+trigger	check	check.sh	-	no	env	conf	check.sh	[RID]	the turn-end gate INV-1..6
 reap	-	kill_stray_shells.sh	-	no	env	conf	kill_stray_shells.sh		end the round's registered processes
 watch	-	watchdog.sh	-	no	env	conf	watchdog.sh	[--all] [--interval S] [--stale S] [--wake S] [--dirty S] [--once]	watch a running round, exit with the reason
 recover	-	recover.sh	-	yes	env	conf	recover.sh	[--all] [--no-probe]	the recovery page, last line the action

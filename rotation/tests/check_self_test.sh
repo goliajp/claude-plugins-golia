@@ -6,13 +6,15 @@
 # (ROTATION_PROJECT_DIR / ROTATION_STATE_DIR); the project this kernel is
 # installed in is never touched.
 #
-#   case 1: GREEN happy path                    → exit 0, INV-1..5 all PASS or SKIP
+#   case 1: GREEN happy path                    → exit 0, INV-1..6 all PASS or SKIP
 #   case 2: INV-1 (stale handoff.md mtime)      → exit 1, INV-1 FAIL line
 #   case 3: INV-2 (dirty working tree)          → exit 1, INV-2 FAIL line
 #   case 4: INV-5 (duplicate rotation_id)       → exit 1, INV-5 FAIL line
 #   case 5: INV-3 (gate pass count dropped)     → exit 1, INV-3 FAIL line
 #   case 6: INV-4 (handoff without the section) → exit 1, INV-4 FAIL line
 #   case 7: INV-4 reads the heading rotation.conf names → exit 0
+#   case 8: INV-6 agent worktrees vs open agents  → FAIL listing the extra path; PASS while its agent is open;
+#           a worktree elsewhere is not counted; ROTATION_WORKTREE_CHECK=0 → SKIP
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -105,6 +107,36 @@ printf 'ROTATION_CONF_KERNEL=1\nROTATION_TRIGGER_SECTION=handover|rotate-trigger
 mk_handoff "handover" "gate: 10/0/0"
 CONF="$TMP/heading.conf" run_case "case-7 INV-4 project heading" 0 "INV-4 PASS"
 run_case "case-7b INV-4 that heading is not read without the conf" 1 "INV-4 FAIL"
+
+# ── case 8 — INV-6 agent worktrees ──────────────────────────────────────
+echo "[case 8] INV-6 an agent worktree with no open agent → exit 1 + INV-6 FAIL"
+mk_handoff "rotate-trigger" "gate: 10/0/0"
+EV="$TMP/state/events.jsonl"
+NOW=$(date +%s)
+printf '{"rotationId":"r-a","ts":%d,"trigger":"self","prevHead":"%s"}\n{"rotationId":"r-b","ts":%d,"trigger":"self","prevHead":"%s"}\n' \
+  "$((NOW - 3000))" "$SHA" "$((NOW - 1000))" "$SHA" > "$ROT"
+g worktree add -q --detach "$REPO/.claude/worktrees/agent-w1" HEAD
+g worktree add -q --detach "$TMP/elsewhere" HEAD
+WT1=$(cd "$REPO/.claude/worktrees/agent-w1" && pwd -P)
+: > "$EV"
+run_case "case-8 INV-6 no open agent" 1 "INV-6 FAIL agent worktrees 1 > open agents 0"
+run_case "case-8b the extra worktree is listed" 1 "^  .*/.claude/worktrees/agent-w1$"
+printf '{"kind":"agent.start","ts":%d,"agent":{"name":"w1","role":"worker","worktree":"%s"}}\n' "$((NOW - 5000))" "$WT1" >> "$EV"
+run_case "case-8c an agent started before the previous row does not count" 1 "INV-6 FAIL"
+printf '{"kind":"agent.start","ts":%d,"agent":{"name":"w1","role":"worker","worktree":"%s"}}\n' "$((NOW - 2000))" "$WT1" >> "$EV"
+run_case "case-8d its agent open since the previous row: PASS (the worktree elsewhere is not counted)" 0 "INV-6 PASS agent worktrees 1 <= open agents 1"
+g worktree add -q --detach "$REPO/.claude/worktrees/agent-w2" HEAD
+run_case "case-8e a second worktree, one agent: FAIL" 1 "INV-6 FAIL agent worktrees 2 > open agents 1"
+run_case "case-8f only the worktree no open agent records is listed" 1 "/.claude/worktrees/agent-w2$"
+out=$(ROTATION_PROJECT_DIR="$REPO" ROTATION_STATE_DIR="$TMP/state" ROTATION_CONF=/dev/null ROTATION_PROJECT_SH=/dev/null "$CHECK" 2>&1)
+if printf '%s\n' "$out" | grep -q 'agent-w1$'; then printf 'FAIL case-8g the owned worktree is listed\n'; fail=$((fail + 1)); else printf 'PASS case-8g the owned worktree is not listed\n'; pass=$((pass + 1)); fi
+g worktree remove --force "$REPO/.claude/worktrees/agent-w2"
+printf '{"kind":"agent.end","ts":%d,"agent":{"name":"w1","role":"worker"}}\n' "$((NOW - 10))" >> "$EV"
+run_case "case-8h its agent ended: FAIL" 1 "INV-6 FAIL agent worktrees 1 > open agents 0"
+printf 'ROTATION_CONF_KERNEL=1\nROTATION_WORKTREE_CHECK=0\n' > "$TMP/nowt.conf"
+CONF="$TMP/nowt.conf" run_case "case-8i ROTATION_WORKTREE_CHECK=0: SKIP" 0 "INV-6 SKIP ROTATION_WORKTREE_CHECK=0"
+g worktree remove --force "$REPO/.claude/worktrees/agent-w1"
+run_case "case-8j no agent worktree left: PASS" 0 "INV-6 PASS agent worktrees 0 <= open agents 0"
 
 echo
 echo "self-test: $pass pass · $fail fail"
