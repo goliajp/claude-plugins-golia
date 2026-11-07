@@ -200,7 +200,12 @@ expect_eq "init: the new commands have shims" \
 
 # ── K3: lanes.sh and the --all modes ────────────────────────────────────
 out=$(cd "$REPO" && bash .claude/rotation/lanes.sh 2>&1); rc=$?
-expect_eq "lanes.sh: exit 0, one line per lane, the first lane first under its name" "$rc:$(printf '%s\n' "$out" | awk '{print $1}' | tr '\n' ' ')" "0:substrate b c d q s "
+expect_eq "lanes.sh: exit 0, one line per lane, the first lane first under its name, then the windows" "$rc:$(printf '%s\n' "$out" | awk '{print $1}' | tr '\n' ' ')" "0:substrate b c d q s windows: "
+expect_eq "lanes.sh: no window open" "$(printf '%s\n' "$out" | tail -1)" "windows: none open"
+(cd "$REPO" && bash .claude/rotation-lanes/b/window.sh open bench --host mini --until +600 >/dev/null)
+out=$(cd "$REPO" && bash .claude/rotation/lanes.sh 2>&1)
+expect_has "lanes.sh: a window lane b opened shows on the windows line" "$(printf '%s\n' "$out" | tail -1)" "windows: bench\\(host=mini until="
+(cd "$REPO" && bash .claude/rotation-lanes/b/window.sh close bench >/dev/null)
 expect_has "lanes.sh: lane b's branch and rid" "$(printf '%s\n' "$out" | grep '^b ')" 'branch=lane/b rid=r-[0-9a-z-]+ head=[0-9a-f]+ '
 expect_has "lanes.sh: lane c's running executor and its manager marker" "$(printf '%s\n' "$out" | grep '^c ')" 'last=rotation\.start@[0-9T:Z-]+ executors=1:c-01\(ag-c1\) manager=yes$'
 expect_has "lanes.sh: the first lane has no executor" "$(printf '%s\n' "$out" | grep '^substrate ')" 'executors=0 manager=no$'

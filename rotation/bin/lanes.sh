@@ -10,9 +10,11 @@
 #   head=<the lane's head: its branch for a lane, HEAD for the first lane> last=<kind>@<at of the last event>
 #   executors=<n>[:<name>(<id>),…] (rotation executors with an agent.start and no agent.end) manager=<yes|no>
 #   (manager.active present)
+# then one line for the open windows (window.sh; read from every lane's events log):
+#   windows: none open · or · windows: <name>(host=<h> until=<ISO> overdue=yes|no), …
 # --json: the same as a JSON array of objects {lane, value, branch, rid, head, lastEvent: {kind, at},
 # executors: [{name, id}], managerActive}; `value` is the ROTATION_LANE the lane's shims export ("" for the
-# first lane). Unknown fields are null.
+# first lane). Unknown fields are null. The windows are not in it (`window.sh status --json` lists them).
 #
 # exit: 0 · 2 usage
 
@@ -82,3 +84,11 @@ for r in rows:
         r["lane"], r["branch"] or "-", r["rid"] or "-", r["head"] or "-",
         "%s@%s" % (ev["kind"], ev["at"]) if ev else "-", exs, "yes" if r["managerActive"] else "no"))
 ' "$JSON"
+[ "$JSON" -eq 1 ] && exit 0
+wins=$(ROTATION_REPO="$PROJECT_DIR" ROTATION_EVENTS_LOG="$EVENTS_LOG" ROTATION_ROTATIONS_LOG="$ROTATIONS_LOG" \
+  ROTATION_WINDOW_LOGS="$(autorun_window_logs)" python3 "$SCRIPT_DIR/recover_lib.py" windows --json)
+printf '%s' "$wins" | python3 -c '
+import json, sys
+rows = json.loads(sys.stdin.read() or "[]")
+print("windows: " + (", ".join("%s(host=%s until=%s overdue=%s)" % (w["name"], w["host"] or "-", w["untilAt"] or "-", "yes" if w["overdue"] else "no") for w in rows) or "none open"))
+'

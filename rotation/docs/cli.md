@@ -47,6 +47,9 @@ For every command marked `conf` below, in this order:
 | `lane close` | (with `--lane`) | `lane_close.sh` | — | conf | 0 · 1 a step failed · 2 usage · 3 merge conflict |
 | `lane merge` | `TAG` \| `--returned TAG REASON [REVERT]` | `lane_merge.sh` | — | conf | 0 · 1 · 2 usage · 3 merge conflict |
 | `lane return` | `TAG REASON [REVERT]` | `lane_merge.sh --returned` | — | conf | as `lane merge` |
+| `window open` · `extend` | `NAME --until ISO\|+SECONDS\|EPOCH [--host H] [--reason R]` | `window.sh open` / `extend` | — | conf | 0 · 1 (extend) no such window open · 2 usage |
+| `window close` | `NAME [--reason R]` | `window.sh close` | — | conf | 0 · 1 no such window open · 2 usage |
+| `window status` | `[NAME]` | `window.sh status` | yes | conf | 0 a window open · 1 closed · 2 usage |
 | `event add` | `KIND [key=value]...` | `event.sh` | — | conf | 0 · 2 usage or a required key missing |
 | `agent start` / `agent end` | `NAME ROLE MODEL [TASK] [REPORT]` | `agent_log.sh start` / `end` | — | conf | 0 · 2 usage |
 | `manager start` · `spawn` · `resume` · `verify` · `stop` | as `manager_log.sh` | `manager_log.sh <verb>` | — | conf | 0 · 2 usage |
@@ -61,7 +64,7 @@ For every command marked `conf` below, in this order:
 | `trigger gate` | | `trig_gate.sh` | — | conf | 0 · 1 FAIL · 2 configuration |
 | `trigger check` | `[RID]` | `check.sh` | — | conf | 0 · 1 · 2 |
 | `reap` | | `kill_stray_shells.sh` | — | conf | 0 · 1 no Claude Code ancestor found |
-| `watch` | `[--all] [--interval S] [--stale S] [--wake S] [--dirty S] [--once]` | `watchdog.sh` | — | conf | 10–15 the reason · 0 only with `--once` · 1 · 2 usage |
+| `watch` | `[--all] [--interval S] [--stale S] [--wake S] [--dirty S] [--once]` | `watchdog.sh` | — | conf | 10–16 the reason · 0 only with `--once` · 1 · 2 usage |
 | `recover` | `[--all] [--no-probe]` | `recover.sh` | yes | conf | 0 · 2 usage |
 | `log` | `[--tail N]` | `log.sh` | yes | conf | 0 · 2 usage |
 | `stats` | `[--tail N] [-- --project NAME]` | `stats.sh` | — | conf | 0 · 2 |
