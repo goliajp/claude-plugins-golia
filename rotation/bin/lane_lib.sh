@@ -27,6 +27,32 @@ autorun_lanes() {
   done
 }
 
+# The lane whose tree the working directory is in, else nothing: a directory under <main tree>/.claude/lanes/<lane>/,
+# or a worktree other than the main tree whose branch is the ROTATION_BASE_BRANCH a lane sets (its project.sh, or its
+# rotation.conf). A lane's worktree links its .claude/ to the main tree's, so the kernel called there without the
+# lane's shim resolves to the first lane's state.
+autorun_lane_of_cwd() {
+  local common main here top branch d n b
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  main=$(cd "$(dirname "$common")" && pwd -P)
+  here=$(pwd -P)
+  case "$here/" in
+    "$main/.claude/lanes/"?*/*) n=${here#"$main/.claude/lanes/"}; printf '%s\n' "${n%%/*}"; return 0 ;;
+  esac
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  top=$(cd "$top" && pwd -P)
+  [ "$top" != "$main" ] || return 0
+  branch=$(git -C "$top" symbolic-ref --short -q HEAD) || return 0
+  for d in "$main"/.claude/rotation-lanes/*/; do
+    [ -f "$d/rotation.conf" ] || continue
+    n=$(basename "$d")
+    b=$(sed -n 's/^[[:space:]]*ROTATION_BASE_BRANCH[[:space:]]*=[[:space:]]*//p' "$d/rotation.conf" | tail -1 | tr -d '[:space:]')
+    [ -n "$b" ] || b=$(unset ROTATION_BASE_BRANCH; [ -f "$d/project.sh" ] && . "$d/project.sh" >/dev/null 2>&1; printf '%s' "${ROTATION_BASE_BRANCH:-}")
+    [ -n "$b" ] && [ "$b" = "$branch" ] && { printf '%s\n' "$n"; return 0; }
+  done
+  return 0
+}
+
 # autorun_run_all <script> [args…]: run the script once per lane in that lane's environment, printing
 # `== lane <name> ==` before each run's output. Returns the highest exit code of the runs.
 # The overrides a single-lane self-test may set are dropped for the children: each lane's own paths apply.

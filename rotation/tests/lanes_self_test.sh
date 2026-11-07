@@ -158,6 +158,22 @@ printf 'export ROTATION_BASE_BRANCH=lane/b\n' >> "$LANE/project.sh"
 echo c > "$REPO/c.txt"; g add -A; g commit -q -m "feat: main lane moves on"
 MSHA=$(g rev-parse --short HEAD)
 expect_eq "autorun_git_head in lane mode from the main tree: the lane branch's head" "$(cd "$REPO" && ROTATION_LANE=b bash -c '. .claude/rotation/lib.sh; autorun_git_head')" "$WSHA"
+
+# ── event.sh refuses to write the first lane's log from inside a lane's tree ─
+out=$(cd "$WT" && bash .claude/rotation/event.sh harness.note note.kind=guard-wt 2>&1); rc=$?
+expect_eq "event.sh in lane b's worktree without ROTATION_LANE: refused (exit 2)" "$rc" 2
+expect_has "the refusal names the lane's shim" "$out" "run it through the lane's shim .claude/rotation-lanes/b/event.sh"
+expect_eq "nothing written to either log" "$(grep -c 'guard-wt' "$MEV" "$LEV" | awk -F: '{s += $2} END {print s}')" 0
+out=$(cd "$WT" && bash "$KBIN/event.sh" harness.note note.kind=guard-wt 2>&1); rc=$?
+expect_eq "the kernel's event.sh called by path from the worktree: refused too" "$rc" 2
+mkdir -p "$REPO/.claude/lanes/b/sub"
+out=$(cd "$REPO/.claude/lanes/b/sub" && bash "$KBIN/event.sh" harness.note note.kind=guard-dir 2>&1); rc=$?
+expect_eq "a directory under .claude/lanes/b/: refused" "$rc:$(grep -c 'guard-dir' "$MEV")" "2:0"
+rm -rf "$REPO/.claude/lanes"
+(cd "$WT" && bash .claude/rotation-lanes/b/event.sh harness.note note.kind=guard-shim >/dev/null 2>&1); rc=$?
+expect_eq "through the lane's shim from the worktree: written to the lane's log" "$rc:$(grep -c 'guard-shim' "$LEV")" "0:1"
+(cd "$REPO" && bash .claude/rotation/event.sh harness.note note.kind=guard-main >/dev/null 2>&1); rc=$?
+expect_eq "the first lane's shim from the main tree: written to its log" "$rc:$(grep -c 'guard-main' "$MEV")" "0:1"
 expect_eq "autorun_git_head in the main lane: HEAD" "$(cd "$REPO" && bash -c '. .claude/rotation/lib.sh; autorun_git_head')" "$MSHA"
 printf '{"rotationId":"r-7-beef","ts":1,"trigger":"self","project":"repo","prevHead":"%s"}\n' "$WSHA" > "$REPO/.claude/rotation-state/lanes/b/rotations.jsonl"
 printf 'rotation=r-7-beef executor=x id=ag-x since=t session=s\n' > "$REPO/.claude/rotation-state/lanes/b/manager.active"
