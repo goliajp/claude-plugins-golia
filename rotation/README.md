@@ -97,7 +97,7 @@ A project that has not run `/rotation:init` is untouched by all three: no `.clau
 
 ## Exit codes
 
-Scripts print their usage on a wrong argument count or an unknown option (exit 2); none takes `--help`. `trig_gate.sh` 0 / 1 FAIL / 2 configuration · `trigger.sh` 0 / 1 blocked / 2 usage or configuration / 3 `manual` without a terminal · `check.sh` 0 / 1 / 2 · `close_plan.sh` 0 / 2 · `adapter_run.sh` the command's own / 2 not registered / 64 claim without record · `doctor.sh` 0 / 1 / 2 · `watchdog.sh` 10–16 as above · `window.sh` 0 / 1 closed or not open / 2, 0 only with `--once` · `recover.sh` 0 / 2 · `--all` modes the highest of the lanes' codes · `onboard_check.sh` 0 / 1 / 2 · `lanes.sh` 0 / 2 · `lane_close.sh` 0 / 1 / 2 / 3 conflict · `lane_merge.sh` 0 / 1 / 2 / 3 conflict · `agent_log.sh`, `manager_log.sh`, `event.sh` 0 / 2.
+Scripts print their usage on a wrong argument count or an unknown option (exit 2); none takes `--help`. `trig_gate.sh` 0 / 1 FAIL / 2 configuration · `trigger.sh` 0 / 1 blocked / 2 usage or configuration / 3 `manual` without a terminal · `check.sh` 0 / 1 / 2 · `close_plan.sh` 0 / 2 · `adapter_run.sh` the command's own / 2 not registered / 64 claim without record · `doctor.sh` 0 / 1 / 2 · `watchdog.sh` 10–16 as above · `window.sh` 0 / 1 closed or not open / 2, 0 only with `--once` · `recover.sh` 0 / 2 · `--all` modes the highest of the lanes' codes · `onboard_check.sh` 0 / 1 / 2 · `lanes.sh` 0 / 2 · `claim.sh` 0 / 1 (drop) no such claim / 2 / 3 (add) overlaps another lane's claim · `lane_close.sh` 0 / 1 / 2 / 3 conflict · `lane_merge.sh` 0 / 1 / 2 / 3 conflict · `agent_log.sh`, `manager_log.sh`, `event.sh` 0 / 2.
 
 ## Tests
 

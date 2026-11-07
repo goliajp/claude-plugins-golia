@@ -12,9 +12,12 @@
 #   (manager.active present)
 # then one line for the open windows (window.sh; read from every lane's events log):
 #   windows: none open · or · windows: <name>(host=<h> until=<ISO> overdue=yes|no), …
+# and one for the path claims in force (claim.sh; one file for every lane):
+#   claims: <n> · or · claims: <n> (<lane>:<n>, …)
 # --json: the same as a JSON array of objects {lane, value, branch, rid, head, lastEvent: {kind, at},
 # executors: [{name, id}], managerActive}; `value` is the ROTATION_LANE the lane's shims export ("" for the
-# first lane). Unknown fields are null. The windows are not in it (`window.sh status --json` lists them).
+# first lane). Unknown fields are null. The windows and claims are not in it (`window.sh status --json`, `claim.sh
+# list --json` list them).
 #
 # exit: 0 · 2 usage
 
@@ -91,4 +94,10 @@ printf '%s' "$wins" | python3 -c '
 import json, sys
 rows = json.loads(sys.stdin.read() or "[]")
 print("windows: " + (", ".join("%s(host=%s until=%s overdue=%s)" % (w["name"], w["host"] or "-", w["untilAt"] or "-", "yes" if w["overdue"] else "no") for w in rows) or "none open"))
+'
+bash "$SCRIPT_DIR/claim.sh" list --json | python3 -c '
+import collections, json, sys
+rows = json.loads(sys.stdin.read() or "[]")
+by = collections.Counter(r["lane"] for r in rows)
+print("claims: %d" % len(rows) + (" (" + ", ".join("%s:%d" % kv for kv in sorted(by.items())) + ")" if rows else ""))
 '
