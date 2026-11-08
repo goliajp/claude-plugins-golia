@@ -85,7 +85,7 @@ ROTATION_WORKER_STALE=1200
 # ROTATION_INBOX_INSERT_LINE=65
 # lanes: lane_close.sh refuses a commit of the round whose message has a line matching this (or
 # ROTATION_AGENT_ORIGIN_PATTERN), and a handoff missing any of these `|`-separated section titles (empty = not checked)
-# ROTATION_TRACE_PATTERN=Co-Authored-By|Generated with|generated with|🤖|[Cc]laude
+# ROTATION_TRACE_PATTERN=Co-Authored-By|\b[Gg]enerated with|🤖|\b[Cc]laude\b
 # ROTATION_HANDOFF_SECTIONS=
 # lanes: a project check lane_close.sh runs after the trace check, before merging (sh -c in the worktree, with
 # ROTATION_MERGE_BASE and ROTATION_HEAD set); non-zero = nothing merged, no tag. Empty = none

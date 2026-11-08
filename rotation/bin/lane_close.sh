@@ -72,7 +72,8 @@ fi
 base="${MERGE_FROM_ARG:-${ROTATION_MERGE_FROM:-develop}}"
 
 mb=$(g merge-base "$base" HEAD) || { echo "lane_close: no merge base of $base and HEAD" >&2; exit 1; }
-trace="${ROTATION_TRACE_PATTERN:-Co-Authored-By|Generated with|generated with|🤖|[Cc]laude}"
+# word boundaries: "regenerated with the tool" is not a trace (devline-09 rewrote 7 commits over it, 2026-11-09)
+trace="${ROTATION_TRACE_PATTERN:-Co-Authored-By|\\b[Gg]enerated with|🤖|\\b[Cc]laude\\b}"
 echo "lane_close: 0 trace check ${mb:0:9}..HEAD, handoff sections"
 found=0
 for sha in $(g rev-list "$mb..HEAD"); do
