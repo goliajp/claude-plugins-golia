@@ -79,8 +79,9 @@ fi
 # manual). rotation-276 incident: a watcher polling a pattern that never
 # appears ran 6h into the next rotation because the ps-based audit
 # truncated its command line; the reaper reads the registrations instead.
+REAP_OPERATOR=0; [ "$TRIGGER" != manual ] || REAP_OPERATOR=1
 ROTATION_STATE_DIR="$STATE_DIR" ROTATION_EVENTS_LOG="$EVENTS_LOG" ROTATION_REAP_ROTATION_ID="$(autorun_current_rotation_id)" \
-  "$SCRIPT_DIR/kill_stray_shells.sh" || {
+  ROTATION_REAP_OPERATOR="$REAP_OPERATOR" "$SCRIPT_DIR/kill_stray_shells.sh" || {
   echo "trigger.sh: kill_stray_shells.sh FAILED — rotation close aborted" >&2
   exit 1
 }

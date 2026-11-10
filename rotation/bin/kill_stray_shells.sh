@@ -43,7 +43,9 @@
 # Exit 0 + "CLEAN" when no registered process is alive; exit 0 + KILL lines
 # and a REAPED count otherwise; STALE lines for registrations that no longer
 # name a process of this session. Exit 1 only when no claude ancestor is
-# found (not run from within a session — refuse rather than guess).
+# found (not run from within a session — refuse rather than guess), unless
+# ROTATION_REAP_OPERATOR=1 (the operator's manual close): then LEFT lines for the
+# registrations still alive, nothing killed, exit 0.
 
 set -u
 
@@ -66,9 +68,17 @@ while [ -n "$p" ] && [ "$p" != "0" ] && [ "$p" != "1" ]; do
   ancestors="$ancestors$p "
 done
 
+# The operator's terminal (trigger.sh manual sets ROTATION_REAP_OPERATOR=1) is not inside a session and has
+# no session shells of its own to reap: the registrations still alive are named and left alone, and the
+# close goes on. `manual` needs a terminal and this script needed a session, so no manual close could
+# pass (2026-11-11). Without the variable the refusal stands.
+operator=0
 if [ -z "$claude_pid" ]; then
-  echo "NO_CLAUDE_ANCESTOR — not inside a Claude Code session, refusing"
-  exit 1
+  if [ "${ROTATION_REAP_OPERATOR:-0}" != 1 ]; then
+    echo "NO_CLAUDE_ANCESTOR — not inside a Claude Code session, refusing"
+    exit 1
+  fi
+  operator=1
 fi
 
 # this round's registrations: process.start pids without a process.end, as `<pid><TAB><what>`
@@ -103,6 +113,20 @@ for pid, what in live.items():
     print("%d\t%s" % (pid, what))
 PY
 )
+
+if [ "$operator" -eq 1 ]; then
+  left=0
+  while IFS=$'\t' read -r pid what; do
+    [ -n "$pid" ] || continue
+    kill -0 "$pid" 2>/dev/null || continue
+    echo "LEFT $pid: registered as '$what', alive; not reaped from the operator's terminal"
+    left=$((left + 1))
+  done <<EOF_REG
+$registered
+EOF_REG
+  echo "OPERATOR — not inside a Claude Code session: nothing reaped, $left registered process(es) left alone"
+  exit 0
+fi
 
 descendants() {
   local pid=$1 c
