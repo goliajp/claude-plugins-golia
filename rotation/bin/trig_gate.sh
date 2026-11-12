@@ -861,7 +861,7 @@ PY
 }
 
 # ── TRIG-10 / TRIG-11 — what the commits got, read from the events ────
-# Both read the session's first-parent line (<previous self prevHead>..HEAD, oldest first; merge commits are
+# Both read the round's first-parent line (<last round boundary, self or manual>..HEAD, oldest first; merge commits are
 # boundaries, never counted) against events.jsonl, so neither believes a handoff or a report: a round that
 # claimed every commit pre-flighted had 9 preflight.end for 27 commits, and batches of 7 between gates went
 # through, while both rules lived only in prose.
@@ -871,8 +871,11 @@ PY
 #              session's start to the first gate, between consecutive gates, and from the last gate to HEAD;
 #              a stretch of more than N non-merge commits is listed with its count and first and last sha
 session_commit_check() {  # session_commit_check preflight|batch [N]
-  local range
-  range=$(session_range)
+  # this round's commits: from the last round boundary of any trigger kind, not the last `self` one
+  local range row last_head
+  row=$(autorun_last_round_row)
+  last_head=$(printf '%s\n' "$row" | cut -f2)
+  if [ -n "$last_head" ]; then range="$last_head..HEAD"; else range=$(session_range); fi
   git -C "$PROJECT_DIR" rev-list --first-parent --reverse --parents "$range" 2>/dev/null \
     | python3 -c '
 import json, sys

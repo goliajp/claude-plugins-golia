@@ -832,6 +832,12 @@ mk_events 900 preflight.end "$(pf "${T[0]}")" 700 preflight.end "$(pf "${T[2]}")
 CONF="$TMP/conf-t10.conf" run_case "84 TRIG-10 on: commits without a preflight.end are listed" 1 \
   "TRIG-10 FAIL 2 of 6 commit\\(s\\) have no preflight.end with their sha: ${T[1]:0:9} ${T[3]:0:9} — "
 CONF="$TMP/conf-t10-bogus.conf" run_case "85 unknown TRIG-10 switch value is a configuration error" 2 'ROTATION_PREFLIGHT_PER_COMMIT must be 0 or 1'
+# 85b: a round the operator released is a boundary too. A manual row at t4 leaves t5 and t6 to this round,
+# both pre-flighted, so the two commits of the released round are not judged again
+cp "$TMP/rot.jsonl" "$TMP/rot.keep"
+printf '{"rotationId":"r-m","at":"x","ts":%d,"project":"%s","trigger":"manual","prevHead":"%s"}\n' "$(( $(date +%s) - 3600 ))" "$PROJECT" "${T[3]:0:9}" >> "$TMP/rot.jsonl"
+CONF="$TMP/conf-t10.conf" run_case "85b TRIG-10 counts from the last round boundary, a manual one included" 0 'TRIG-10 PASS commits=2, each with a preflight.end'
+mv "$TMP/rot.keep" "$TMP/rot.jsonl"
 mk_events 700 gate.end "$(gt "${T[2]:0:9}")" 300 gate.end "$(gt "${T[5]}")"
 CONF="$TMP/conf-t11.conf" run_case "86 TRIG-11 N=3: gates after the 3rd and 6th commit" 0 'TRIG-11 PASS commits=6, largest batch between gates=3 ≤ 3'
 mk_events 900 gate.end "$(gt "${T[0]}")"

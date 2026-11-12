@@ -384,6 +384,32 @@ if last and last.get("ts") is not None and last.get("prevHead"):
 PY
 }
 
+# Last row of any trigger kind for this project, as `ts<TAB>prevHead`: where the current round began. A round the
+# operator released (`trigger=manual`) ended there all the same; reading the last `self` row instead hands its
+# commits to the next round, which then fails TRIG-10 / TRIG-11 on commits it never made (2026-11-12: six commits
+# of a manually released round failed the following round's TRIG-10).
+autorun_last_round_row() {
+  [ -f "$ROTATIONS_LOG" ] || { echo ""; return; }
+  python3 - "$ROTATIONS_LOG" "$(autorun_project_name)" <<'PY'
+import json, sys
+log, project = sys.argv[1], sys.argv[2]
+last = None
+try:
+    with open(log) as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(r, dict) and r.get("project") == project and r.get("ts") is not None and r.get("prevHead"):
+                last = r
+except FileNotFoundError:
+    pass
+if last:
+    print(str(last["ts"]) + "\t" + last["prevHead"])
+PY
+}
+
 # Commits in a range that the main session itself made. Work landed by a
 # parallel agent carries an `Agent-Origin: <agent>` trailer and is not the
 # main session's work, so it never counts toward TRIG-1 or `closed:`
