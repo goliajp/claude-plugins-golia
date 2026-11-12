@@ -576,6 +576,21 @@ check "25b nothing removed, pass 200 → 199: red" "$out" "$rc" 0 'red=1' 'RED +
 cases_file c.tsv 41 0 9; ss_end 150 159 ',"caseFile":"cases/c.tsv"'
 out=$(RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
 check "25c 41 removed, pass 200 → 150: red" "$out" "$rc" 0 'red=1' 'RED +sweep: pass 200 → 150 \(pass: removed 41 / added 0 / same-set delta -9 / lost 9: s042, s043, s044, s045, s046 … · '
+# 25r re-baselined cases: a row for this tool and this baseline takes its case out of `lost`; another tool, another
+# baseline sha or a malformed file acknowledges nothing
+cases_file b.tsv 0 0 1; ss_end 199 200 ',"caseFile":"cases/b.tsv"'
+printf '# tool\tbaseline\tcase\treason\nsweep\t%s\ts001\tthe pass never called then\n' "$(printf %s "$B0" | cut -c1-9)" > "$TMP/ack.tsv"
+out=$(ROTATION_CASESET_ACK_FILE="$TMP/ack.tsv" RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25r a re-baselined case is not a hit" "$out" "$rc" 0 'red=0'
+grep -qF 'same-set delta -1 / lost 0 / rebaselined 1: s001 (the pass never called then)' "$TMP/verdicts/r-test-1.verdict.md" \
+  && { echo "ok   25rm the sweep row names the re-baselined case and its reason"; pass=$(( pass + 1 )); } \
+  || { echo "FAIL 25rm the sweep row"; grep '^| sweep' "$TMP/verdicts/r-test-1.verdict.md"; fail=$(( fail + 1 )); }
+printf 'sweep\t0000000\ts001\tanother baseline\ngate\t%s\ts001\tanother tool\n' "$(printf %s "$B0" | cut -c1-9)" > "$TMP/ack.tsv"
+out=$(ROTATION_CASESET_ACK_FILE="$TMP/ack.tsv" RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25s a row for another baseline or another tool acknowledges nothing: red" "$out" "$rc" 0 'red=1' 'lost 1: s001'
+printf 'sweep\t%s\ts001\n' "$(printf %s "$B0" | cut -c1-9)" > "$TMP/ack.tsv"
+out=$(ROTATION_CASESET_ACK_FILE="$TMP/ack.tsv" RULES="$TMP/rules-ss.tsv" run_fill r-test-1); rc=$?
+check "25t a row with no reason: nothing acknowledged, red, the row says the file was not used" "$out" "$rc" 0 'red=1' 're-baseline file not used'
 # membership only on the baseline side (an inline list): red only when the drop exceeds the removed count
 ss_prev ",\"cases\":[$(seq -f '"s%03g"' 1 200 | paste -sd, -)]"
 ss_end 191 191 ',"caseFile":"cases/a.tsv"'

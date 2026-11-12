@@ -19,12 +19,21 @@ Rules, against the baseline stamp:
                  (`lost`, the first five named), and so whenever fewer common cases are counted now (delta < 0)
   removed-bound  both lists, verdicts missing on one side: red when the count fell by more than the cases removed
   fallback       no usable list on one side: the plain `down` rule
+
+Re-baselined cases (same-set only). A pass that was never a real pass (a shortcut answered, the harness had no
+oracle) is lost the day the code is made right, and that loss is not a regression. ROTATION_CASESET_ACK_FILE names
+a tab-separated file, `#` comments: `<tool>\t<baseline sha prefix, 7+>\t<case>\t<reason>`. A lost case with a row
+for this tool whose sha is a prefix of the baseline stamp's headSha is counted as `rebaselined`, named in the
+check's row with its reason, and is not a hit. A row is good against that one baseline only: the next round's
+baseline is another sha and the row judges nothing. An unreadable file or a row with an empty field is an error
+the row reports, and nothing is acknowledged.
 """
 import gzip
 import os
 import subprocess
 
 CMD = os.environ.get("ROTATION_CASESET_CMD") or ""
+ACK_FILE = os.environ.get("ROTATION_CASESET_ACK_FILE") or ""
 LOST_NAMED = 5
 
 # the verdict's words for this op; close_lib.py merges them into its MESSAGES (a project's table may override them)
@@ -32,6 +41,8 @@ MESSAGES = {
     "caseset_same_set": "{reading}: removed {removed} / added {added} / same-set delta {delta:+d} / lost {lost}{lost_names}"
                         " · {src}",
     "caseset_lost_names": ": {names}{more}",
+    "caseset_acked": " / rebaselined {n}: {names}",
+    "caseset_ack_bad": " / re-baseline file not used ({why})",
     "caseset_removed_bound": "{reading}: removed {removed} / added {added} / per-case verdicts missing on a side, "
                              "red when the drop {drop} exceeds the {removed} removed · {src}",
     "caseset_fallback": "{reading}: no usable case list ({side}: {why}), judged as `down`",
@@ -114,6 +125,28 @@ def _agrees(names, hv, doc, key, counted, num):
     return None if t is None or len(names) == t else ("caseset_why_mismatch", {"n": len(names), "what": what, "m": t})
 
 
+def acks(tool, base_sha, path=None):
+    """({case: reason} acknowledged for `tool` against the baseline `base_sha`, None) or ({}, why)"""
+    path = ACK_FILE if path is None else path
+    if not path:
+        return {}, None
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                line = line.rstrip("\n")
+                if not line.strip() or line.startswith("#"):
+                    continue
+                f = line.split("\t")
+                if len(f) != 4 or not all(x.strip() for x in f) or len(f[1].strip()) < 7:
+                    return {}, f"{path}:{n}: want <tool>\\t<baseline sha, 7+>\\t<case>\\t<reason>"
+                if f[0] == tool and base_sha and base_sha.startswith(f[1].strip()):
+                    out[f[2]] = f[3].strip()
+    except OSError as e:
+        return {}, f"{path}: {e.strerror or e}"
+    return out, None
+
+
 def judge(key, params, cur, prev, tool, stamp_dir, repo, cmd, num):
     """the downSameSet reading of one key against the baseline `prev` (not None). returns a dict: hit, mode,
     cn, pn, and per mode removed / added / delta / lost / drop, src (cur, prev) or why (side, (key, fields))"""
@@ -136,7 +169,10 @@ def judge(key, params, cur, prev, tool, stamp_dir, repo, cmd, num):
         pc = sum(1 for k in common if a[k] in counted)
         cc = sum(1 for k in common if b[k] in counted)
         lost = sorted(k for k in common if a[k] in counted and b[k] not in counted)
-        out.update(mode="same-set", delta=cc - pc, lost=lost, hit=bool(lost))
+        ack, ack_bad = acks(tool, str(prev.get("headSha") or ""))
+        acked = [(k, ack[k]) for k in lost if k in ack]
+        lost = [k for k in lost if k not in ack]
+        out.update(mode="same-set", delta=cc - pc, lost=lost, acked=acked, ack_bad=ack_bad, hit=bool(lost))
     else:
         drop = (pn - cn) if cn is not None and pn is not None else 0
         out.update(mode="removed-bound", drop=drop, hit=drop > removed)
@@ -154,6 +190,10 @@ def note(key, j, msg):
         return msg("caseset_removed_bound", reading=key, removed=j["removed"], added=j["added"], drop=j["drop"], src=src)
     lost = j["lost"]
     names = msg("caseset_lost_names", names=", ".join(lost[:LOST_NAMED]), more=" …" if len(lost) > LOST_NAMED else "") if lost else ""
+    if j.get("acked"):
+        names += msg("caseset_acked", n=len(j["acked"]), names="; ".join(f"{k} ({why})" for k, why in j["acked"]))
+    if j.get("ack_bad"):
+        names += msg("caseset_ack_bad", why=j["ack_bad"])
     return msg("caseset_same_set", reading=key, removed=j["removed"], added=j["added"], delta=j["delta"], lost=len(lost),
                lost_names=names, src=src)
 
