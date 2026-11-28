@@ -256,18 +256,18 @@ print(len(ex), " ".join("%s(%s)" % (a.get("name"), a.get("id") or "no-id") for a
 fi
 
 # ── git ─────────────────────────────────────────────────────────────────
-if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   pass git "$PROJECT_DIR @ $(autorun_git_head)"
-  base="${ROTATION_BASE_BRANCH:-$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)}"
+  base="${ROTATION_BASE_BRANCH:-$("$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)}"
   if [ -z "$base" ] || [ "$base" = HEAD ]; then
     fail git.base "detached HEAD and ROTATION_BASE_BRANCH not set"
-  elif git -C "$PROJECT_DIR" rev-parse --verify --quiet "refs/heads/$base" >/dev/null; then
+  elif "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-parse --verify --quiet "refs/heads/$base" >/dev/null; then
     pass git.base "$base"
   else
     fail git.base "branch does not exist: $base"
   fi
 else
-  fail git "not a git work tree: $PROJECT_DIR"
+  fail git "not a $ROTATION_VCS_KIND work tree: $PROJECT_DIR"
 fi
 
 # ── the plan's shape (onboarding steps 3, 5 and 7) ──────────────────────

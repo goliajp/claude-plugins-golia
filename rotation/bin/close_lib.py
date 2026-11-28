@@ -37,6 +37,8 @@ import caseset_lib
 from regress_lib import each_up, num, regress_spec_error
 
 REPO = os.environ.get("ROTATION_REPO") or os.getcwd()
+# git, or alt taking git's arguments (vcs.sh)
+VCS_BIN = os.environ.get("ROTATION_VCS_BIN") or "git"
 RULES = os.environ.get("ROTATION_CLOSE_RULES") or ""
 STAMP_DIR = os.environ.get("ROTATION_STAMP_DIR") or ""
 STAMP_HISTORY = os.environ.get("ROTATION_STAMP_HISTORY") or os.path.join(STAMP_DIR, "stamps.jsonl")
@@ -215,7 +217,7 @@ def mode_word(m):
 
 
 def git(*args, default=None):
-    r = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
+    r = subprocess.run([VCS_BIN, "-C", REPO, *args], capture_output=True, text=True)
     return r.stdout.rstrip("\n") if r.returncode == 0 else default
 
 
@@ -610,7 +612,7 @@ def dig(doc, key):
 
 
 def is_ancestor(sha, base):
-    r = subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", sha, base], capture_output=True, text=True)
+    r = subprocess.run([VCS_BIN, "-C", REPO, "merge-base", "--is-ancestor", sha, base], capture_output=True, text=True)
     return r.returncode == 0
 
 

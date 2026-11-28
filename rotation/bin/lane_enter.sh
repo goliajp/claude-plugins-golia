@@ -41,8 +41,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-WT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "lane_enter: not inside a git work tree" >&2; exit 1; }
-COMMON=$(cd "$WT" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "lane_enter: no git common dir" >&2; exit 1; }
+. "$SCRIPT_DIR/vcs.sh"
+rotation_vcs_select .
+WT=$("$ROTATION_VCS_BIN" rev-parse --show-toplevel 2>/dev/null) || { echo "lane_enter: not inside a $ROTATION_VCS_KIND work tree" >&2; exit 1; }
+COMMON=$(cd "$WT" && "$ROTATION_VCS_BIN" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "lane_enter: no $ROTATION_VCS_KIND common dir" >&2; exit 1; }
 MAIN=$(cd "$(dirname "$COMMON")" && pwd)
 if [ "$MAIN" = "$WT" ]; then
   echo "lane_enter: $WT is the main tree, not a worktree — a lane's executor never works on the main tree" >&2
@@ -78,7 +80,7 @@ if [ -f "$LANE_DIR/rotation.conf" ]; then
   conf_dirs=$(sed -n 's/^[[:space:]]*ROTATION_LANE_SHARED_DIRS[[:space:]]*=[[:space:]]*//p' "$LANE_DIR/rotation.conf" | tail -1)
 fi
 for d in $conf_dirs ${SHARE[@]+"${SHARE[@]}"}; do
-  case "$d" in ''|/*|*/*|.|..|.git|.claude) echo "lane_enter: shared dir must be a top-level name, got '$d'" >&2; exit 2 ;; esac
+  case "$d" in ''|/*|*/*|.|..|.git|.alt|.claude) echo "lane_enter: shared dir must be a top-level name, got '$d'" >&2; exit 2 ;; esac
   [ -d "$MAIN/$d" ] || { echo "lane_enter: $MAIN/$d does not exist" >&2; exit 1; }
   if [ ! -e "$WT/$d" ] && [ ! -L "$WT/$d" ]; then
     ln -s "$MAIN/$d" "$WT/$d"

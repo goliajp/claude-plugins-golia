@@ -75,8 +75,8 @@ check_inv1() {
 # converts the silent loss into a loud gate failure.
 check_inv2() {
   local porcelain
-  porcelain=$(git -C "$PROJECT_DIR" status --porcelain 2>/dev/null) || {
-    emit INV-2 FAIL "git status failed (not a repo?)"
+  porcelain=$("$ROTATION_VCS_BIN" -C "$PROJECT_DIR" status --porcelain 2>/dev/null) || {
+    emit INV-2 FAIL "$ROTATION_VCS_KIND status failed (not a repo?)"
     failed+=(INV-2)
     return
   }
@@ -254,13 +254,17 @@ for e in jsonl(events):
         open_agents[name] = (e.get('agent') or {}).get('worktree')
     elif k == 'agent.end':
         open_agents.pop(name, None)
-r = subprocess.run(['git', '-C', repo, 'worktree', 'list', '--porcelain'], capture_output=True, text=True)
+vcs = os.environ.get('ROTATION_VCS_KIND') or 'git'
+sub = 'workspace' if vcs == 'alt' else 'worktree'
+r = subprocess.run([os.environ.get('ROTATION_VCS_BIN') or 'git', '-C', repo, sub, 'list', '--porcelain'], capture_output=True, text=True)
 if r.returncode != 0:
-    print('git worktree list failed')
+    print(f'{vcs} {sub} list failed')
     sys.exit(2)
 home = os.path.realpath(os.path.join(repo, '.claude', 'worktrees'))
 trees = [l[len('worktree '):] for l in r.stdout.splitlines() if l.startswith('worktree ')]
-trees = [t for t in trees if os.path.dirname(os.path.realpath(t)) == home and os.path.basename(t).startswith('agent-')]
+# a worker's git worktree is under .claude/worktrees/; an alt workspace cannot be inside the repository, so there
+# a worker's tree is any workspace named agent-*
+trees = [t for t in trees if (vcs == 'alt' or os.path.dirname(os.path.realpath(t)) == home) and os.path.basename(t).startswith('agent-')]
 owned = {os.path.basename(w.rstrip('/')) for w in open_agents.values() if w}
 n, m = len(trees), len(open_agents)
 if n <= m:

@@ -137,8 +137,10 @@ find_root() {
     [ "$d" = / ] && break
     d=$(dirname "$d")
   done
-  # a git worktree outside the project (a lane's before lane enter, a tool's): the main worktree
-  d=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  # a git worktree or an alt workspace outside the project (a lane's before lane enter, a tool's): the main tree
+  . "$BIN/vcs.sh"
+  rotation_vcs_select .
+  d=$(rotation_vcs_trees 2>/dev/null | sed -n '1s/^worktree //p')
   [ -n "$d" ] && [ -f "$d/.claude/rotation/rotation.conf" ] && { printf '%s\n' "$d"; return 0; }
   return 1
 }

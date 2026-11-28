@@ -35,7 +35,7 @@ TAG_LANE=$(printf '%s' "$TAG" | cut -d/ -f2)
 case "$TAG_LANE" in ''|*[!a-z0-9-]*) echo "lane_merge: a lane tag looks like lane/<lane>/<rid>, got '$TAG'" >&2; exit 2 ;; esac
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/lane_lib.sh"
-g() { git -C "$PROJECT_DIR" "$@"; }
+g() { "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" "$@"; }
 js() { python3 -c 'import json,sys; it=iter(sys.argv[1:]); print(json.dumps({k: (None if v == "" else v) for k, v in zip(it, it)}, ensure_ascii=False))' "$@"; }
 
 tag_head=$(g rev-parse --verify --quiet --short "refs/tags/$TAG^{commit}") || { echo "lane_merge: no tag $TAG" >&2; exit 1; }
@@ -65,10 +65,10 @@ fi
 conflicts=$(g diff --name-only --diff-filter=U)
 if [ -n "$conflicts" ]; then
   autorun_record_event lane.merge.end "tag=$TAG" "merge=raw:$(js status conflict commit "" branch "$branch" baseHead "$base_head")"
-  echo "lane_merge: merge conflict — resolve and commit (or git merge --abort):"
+  echo "lane_merge: merge conflict — resolve and commit (or $ROTATION_VCS_KIND merge --abort):"
   printf '%s\n' "$conflicts" | sed 's/^/  /'
   exit 3
 fi
 autorun_record_event lane.merge.end "tag=$TAG" "merge=raw:$(js status fail commit "" branch "$branch" baseHead "$base_head")"
-echo "lane_merge: git merge $TAG failed" >&2
+echo "lane_merge: $ROTATION_VCS_KIND merge $TAG failed" >&2
 exit 1

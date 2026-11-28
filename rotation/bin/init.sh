@@ -3,7 +3,7 @@
 # rotation kernel — wire this plugin into the project of the current
 # working directory (the `/rotation:init` command runs this).
 #
-# Writes, under the project's git top level:
+# Writes, under the project's top level (git or alt):
 #   .claude/rotation/kernel.path      the plugin root (where bin/ is); the shims read it, and the
 #                                     SessionStart hook rewrites it at every session start
 #   .claude/rotation/<script>         two-line shims for every kernel entry point, so documents,
@@ -47,7 +47,7 @@
 #   none    no shims and no lib.sh shim (kernel.path is still written)
 #
 # usage: init.sh [--force] [--shims hardev|legacy|none] | init.sh --lane <name> [--from <lane>] [--force] [--shims …]
-# exit: 0 written · 1 not inside a git work tree / main lane not wired / no lane <from> · 2 usage
+# exit: 0 written · 1 not inside a git or alt work tree / main lane not wired / no lane <from> · 2 usage
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -73,8 +73,11 @@ case "$FROM" in *[!a-z0-9-]*) echo "init: --from lane must match [a-z0-9-]+, got
 case "$LANE" in ''|[a-z0-9-]*) ;; esac
 case "$LANE" in *[!a-z0-9-]*) echo "init: lane must match [a-z0-9-]+, got '$LANE'" >&2; exit 2 ;; esac
 
-PROJECT_DIR=$(git rev-parse --show-toplevel 2>/dev/null) || {
-  echo "init: not inside a git work tree (run from the project)" >&2
+# a git or an alt tree (vcs.sh: the nearest .git or .alt, git when both are at one level)
+. "$SCRIPT_DIR/vcs.sh"
+rotation_vcs_select .
+PROJECT_DIR=$("$ROTATION_VCS_BIN" rev-parse --show-toplevel 2>/dev/null) || {
+  echo "init: not inside a $ROTATION_VCS_KIND work tree (run from the project)" >&2
   exit 1
 }
 MAIN_DEST="$PROJECT_DIR/.claude/rotation"

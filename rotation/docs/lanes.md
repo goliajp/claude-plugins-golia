@@ -46,6 +46,10 @@ makes `.claude/` a real directory whose entries link to the main tree's, except 
 
 The first lane's close must leave the lane's worktree alone: it is not one of the first lane's workers. Record its path where the first lane's executor reads leftovers, or keep it outside `.claude/worktrees/`.
 
+## Lanes on alt
+
+In an alt repository a lane's tree is an alt workspace, which alt creates only outside the repository: `alt workspace add <lane> <path outside> <lane branch>`, then `lane_enter.sh <lane>` inside it, as above. The workspace's `.alt` is a file; `lane_enter.sh` finds the main tree from `rev-parse --path-format=absolute --git-common-dir`, which from a workspace must print the main tree's `.alt`. A branch is checked out in one workspace at a time, so the lane's branch is never also checked out in the main tree. `lane_close.sh` and `lane_merge.sh` send alt the same commands as git (`merge --no-edit -m`, `merge --no-ff -m`, `merge --abort`, `merge-base`, `rev-list`, `log -1 --format=%B`, `diff --name-only --diff-filter=U`, `tag`); with alt 0.1.0 they fail at the first form alt does not take (`-C` itself, `merge -m`, `rev-list`, `merge-base`) and change nothing before that point. They run on alt once alt takes these forms; the lane self-test still runs on git only.
+
 ## Managing
 
 The manager runs the lane's shims for the lane: `manager_log.sh start`, `doctor.sh`, `recover.sh`, `watchdog.sh`, `report_save.sh` under `.claude/rotation-lanes/<lane>/`, one watchdog per lane. An executor that lives in a worktree is never continued by `SendMessage` (the worktree guard would move the sender's working directory); after a restart or a stall it is replaced from its branch, exactly like a worker.

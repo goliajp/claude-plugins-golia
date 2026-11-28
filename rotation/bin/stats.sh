@@ -112,7 +112,7 @@ def commit_count(prev_head, this_head):
     """commits the way TRIG-1 counts them: first-parent line, Agent-Origin excluded; None when git cannot answer"""
     if not prev_head or not this_head or prev_head == this_head:
         return 0
-    r = subprocess.run(["git", "-C", repo, "rev-list", "--first-parent", "--invert-grep", "-E", f"--grep={origin}",
+    r = subprocess.run([os.environ.get("ROTATION_VCS_BIN") or "git", "-C", repo, "rev-list", "--first-parent", "--invert-grep", "-E", f"--grep={origin}",
                         f"{prev_head}..{this_head}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     if r.returncode != 0:
         return None

@@ -14,6 +14,18 @@ claude plugin install rotation@<marketplace>
 
 In a session whose working directory is inside the project's repository, run `/rotation:init` (or, outside Claude, `CLAUDE_PLUGIN_ROOT=<plugin dir> bash <plugin dir>/bin/init.sh` from inside the repository). It writes under the repository's `.claude/`: `rotation/kernel.path`, a shim per kernel entry point, `rotation/project.sh`, `rotation/rotation.conf` and `rotation/close_rules.tsv` from the templates (only when absent), and the state directory `rotation-state/`. `init.sh --force` rewrites the shims and `kernel.path` and never the three project files. Everything written is under `.claude/`, which the project keeps out of version control.
 
+### An alt repository
+
+The kernel works the same in a native alt repository. `init.sh` finds the project root the same way, with the nearest `.git` or `.alt` deciding the backend (git when both are at one level); `ROTATION_VCS=alt` in `rotation.conf` says it outright, for a tree that keeps a git mirror beside its `.alt`. Every call the kernel makes is `alt -C <dir> <git arguments>`, expecting git's output: `rev-parse` (`--show-toplevel`, `--short`, `--abbrev-ref`, `--verify --quiet`, `--is-inside-work-tree`, `--path-format=absolute --git-common-dir`), `rev-list` (`--first-parent`, `--invert-grep -E --grep=`, `--reverse --parents`, `--format=%ct`, ranges), `log --format=` (`%h %s`, `%ct`, `%B`), `status --porcelain`, `cat-file -e`, `merge-base` (`--is-ancestor`), `symbolic-ref --short -q HEAD`, `workspace list --porcelain`, and for lanes `merge --no-ff -m`, `merge --no-edit -m`, `merge --abort`, `diff --name-only --diff-filter=U`, `tag`. alt 0.1.0 lacks `-C` and several of these; `tests/vcs_self_test.sh` prints the ones the installed alt cannot answer yet.
+
+What is different on alt is where the trees live. alt refuses a workspace inside the repository, so:
+
+- implementation workers do not use `isolation: worktree` (it makes a git worktree); a worker is given an alt workspace made for it, `alt workspace add agent-<name> <path outside the repository>`, and removed with `alt workspace remove` when it ends. INV-6 counts the workspaces named `agent-*`;
+- a workspace has no `.claude/` or `.dev/` of its own: give it links to the main tree's (`lane_enter.sh` does this for a lane) or read them by absolute path;
+- a branch is checked out in one workspace at a time, so a worker or a lane works on a branch of its own, never on the base branch.
+
+Adapter scripts that call `git` themselves (the minimal adapter below does) call `alt` with the same arguments in an alt project.
+
 ## 2 Configure
 
 1. **`rotation.conf`** — set `ROTATION_AXES` to the project's directions of work, `ROTATION_STAMPS` / `ROTATION_SWEEP_STAMP` to the checks that exist, `ROTATION_CLOSE_RULES` to the table. Leave `ROTATION_TRIG1A_MODE` / `ROTATION_TRIG2_MODE=observe` and the template's thresholds: they are placeholders until the project has its own rows ([§4](#4-calibrate)).

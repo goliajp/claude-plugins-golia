@@ -33,16 +33,16 @@ autorun_lanes() {
 # lane's shim resolves to the first lane's state.
 autorun_lane_of_cwd() {
   local common main here top branch d n b
-  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  common=$("$ROTATION_VCS_BIN" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   main=$(cd "$(dirname "$common")" && pwd -P)
   here=$(pwd -P)
   case "$here/" in
     "$main/.claude/lanes/"?*/*) n=${here#"$main/.claude/lanes/"}; printf '%s\n' "${n%%/*}"; return 0 ;;
   esac
-  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  top=$("$ROTATION_VCS_BIN" rev-parse --show-toplevel 2>/dev/null) || return 0
   top=$(cd "$top" && pwd -P)
   [ "$top" != "$main" ] || return 0
-  branch=$(git -C "$top" symbolic-ref --short -q HEAD) || return 0
+  branch=$("$ROTATION_VCS_BIN" -C "$top" symbolic-ref --short -q HEAD) || return 0
   for d in "$main"/.claude/rotation-lanes/*/; do
     [ -f "$d/rotation.conf" ] || continue
     n=$(basename "$d")

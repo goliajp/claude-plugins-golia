@@ -7,7 +7,7 @@
 #   - All paths absolute; never trust CWD (the kernel may be invoked from
 #     anywhere — Stop hook, agent turn, operator shell).
 #   - Zero external deps beyond macOS-built-in (python3 / shasum / git /
-#     date / awk). No jq, no perl one-liners.
+#     date / awk), or alt in place of git (vcs.sh). No jq, no perl one-liners.
 #   - Functions return strings via stdout; errors via stderr; exit codes
 #     reserved for callers that explicitly opt in.
 #   - The kernel knows no project. Everything project-specific arrives
@@ -21,7 +21,7 @@
 
 set -u
 
-ROTATION_KERNEL_VERSION="2.1.0"
+ROTATION_KERNEL_VERSION="2.2.0"
 # The rotation.conf format this kernel reads; a conf states it as
 # ROTATION_CONF_KERNEL. Independent of the product version: it rises only
 # when an existing key changes meaning incompatibly, never for a release or
@@ -30,14 +30,17 @@ ROTATION_CONF_FORMAT="1"
 
 # ── Path discovery ──────────────────────────────────────────────────────
 # AUTORUN_DIR = the kernel directory (this file's parent, the plugin's bin/).
-# The project root is the git top level of the working directory the kernel
+# The project root is the top level (git, or alt: vcs.sh) of the working directory the kernel
 # is invoked from: a hook runs in the session's cwd, a shim in the operator's,
 # and either may be a subdirectory of the repository (the hook environment's
 # CLAUDE_PROJECT_DIR is that cwd, not the root, so it is not used). A
 # self-test gives the root explicitly (ROTATION_PROJECT_DIR) and points it at
 # a throwaway repository.
 AUTORUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="${ROTATION_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+# shellcheck source=vcs.sh
+. "$AUTORUN_DIR/vcs.sh"
+rotation_vcs_select "${ROTATION_PROJECT_DIR:-.}"
+PROJECT_DIR="${ROTATION_PROJECT_DIR:-$("$ROTATION_VCS_BIN" rev-parse --show-toplevel 2>/dev/null)}"
 CLAUDE_DIR="$PROJECT_DIR/.claude"
 # the project's side of the contract: project.sh, rotation.conf, the shims, kernel.path.
 # A lane (ROTATION_LANE, exported by the shims `init.sh --lane` writes) is a
@@ -91,7 +94,7 @@ PROJECT_SH="${ROTATION_PROJECT_SH:-$PROJECT_ROTATION_DIR/project.sh}"
 # first, so a value cannot be slipped in from a shell. trigger.sh writes the
 # effective values and the file's sha256 into every rotations.jsonl row.
 ROTATION_CONF_FILE="${ROTATION_CONF:-$PROJECT_ROTATION_DIR/rotation.conf}"
-ROTATION_CONF_ONLY_KEYS="ROTATION_TRIG1_MIN_COMMITS ROTATION_TRIG1_MIN_CLOSED ROTATION_TRIG2_MIN_WALL_SEC ROTATION_TRIG2_MAX_WALL_SEC ROTATION_TRIG2_MEASURE ROTATION_TRIG5_SAME_AXIS_MAX ROTATION_TRIG5_BENCH_MAX_AGE_DAYS ROTATION_COLD_START_WINDOW ROTATION_AXES ROTATION_BLACKLIST_EXTRA ROTATION_STAMPS ROTATION_AXIS_STAMP ROTATION_SWEEP_STAMP ROTATION_TRIGGER_SECTION ROTATION_TRIG8_GATE_COVERAGE ROTATION_TRIG1A_MODE ROTATION_TRIG2_MODE ROTATION_BOOTSTRAP_ROUNDS ROTATION_MESSAGES ROTATION_CONF_KERNEL ROTATION_CLOSE_CHECKS_OFF ROTATION_WORKER_STALE ROTATION_TRIG9_VERDICT_RED ROTATION_LANE_SHARED_DIRS ROTATION_LANE_NAME ROTATION_PLAN_FILE ROTATION_VISION_FILE ROTATION_QUEUE_HEADER ROTATION_QUEUE_STATES ROTATION_QUEUE_FINAL_STATES ROTATION_LANES_DOC ROTATION_MERGE_FROM ROTATION_INBOX_FILE ROTATION_INBOX_INSERT_LINE ROTATION_TRACE_PATTERN ROTATION_HANDOFF_SECTIONS ROTATION_PREFLIGHT_PER_COMMIT ROTATION_BATCH_MAX ROTATION_WAIT_COMMANDS ROTATION_WORKTREE_CHECK ROTATION_LANE_CLOSE_PRECHECK"
+ROTATION_CONF_ONLY_KEYS="ROTATION_TRIG1_MIN_COMMITS ROTATION_TRIG1_MIN_CLOSED ROTATION_TRIG2_MIN_WALL_SEC ROTATION_TRIG2_MAX_WALL_SEC ROTATION_TRIG2_MEASURE ROTATION_TRIG5_SAME_AXIS_MAX ROTATION_TRIG5_BENCH_MAX_AGE_DAYS ROTATION_COLD_START_WINDOW ROTATION_AXES ROTATION_BLACKLIST_EXTRA ROTATION_STAMPS ROTATION_AXIS_STAMP ROTATION_SWEEP_STAMP ROTATION_TRIGGER_SECTION ROTATION_TRIG8_GATE_COVERAGE ROTATION_TRIG1A_MODE ROTATION_TRIG2_MODE ROTATION_BOOTSTRAP_ROUNDS ROTATION_MESSAGES ROTATION_CONF_KERNEL ROTATION_CLOSE_CHECKS_OFF ROTATION_WORKER_STALE ROTATION_TRIG9_VERDICT_RED ROTATION_LANE_SHARED_DIRS ROTATION_LANE_NAME ROTATION_PLAN_FILE ROTATION_VISION_FILE ROTATION_QUEUE_HEADER ROTATION_QUEUE_STATES ROTATION_QUEUE_FINAL_STATES ROTATION_LANES_DOC ROTATION_MERGE_FROM ROTATION_INBOX_FILE ROTATION_INBOX_INSERT_LINE ROTATION_TRACE_PATTERN ROTATION_HANDOFF_SECTIONS ROTATION_PREFLIGHT_PER_COMMIT ROTATION_BATCH_MAX ROTATION_WAIT_COMMANDS ROTATION_WORKTREE_CHECK ROTATION_LANE_CLOSE_PRECHECK ROTATION_VCS"
 ROTATION_CONF_SHA256=""
 ROTATION_CONF_ERROR=""
 
@@ -126,6 +129,11 @@ autorun_load_conf() {
   fi
 }
 autorun_load_conf
+# the conf may name the backend where the tree cannot show it (alt kept beside a git mirror at one level)
+if [ -n "${ROTATION_VCS:-}" ]; then
+  rotation_vcs_select "$PROJECT_DIR" "$ROTATION_VCS" 2>/dev/null \
+    || ROTATION_CONF_ERROR="ROTATION_VCS must be git or alt, got '$ROTATION_VCS' ($ROTATION_CONF_FILE)"
+fi
 
 # Derived from the conf (kernel defaults when the conf is silent).
 # The handoff section the gates read, as an extended regex on the heading
@@ -200,7 +208,7 @@ autorun_project_name() {
 autorun_git_head() {
   local ref=HEAD
   [ -n "$ROTATION_LANE" ] && [ -n "${ROTATION_BASE_BRANCH:-}" ] && ref="$ROTATION_BASE_BRANCH"
-  git -C "$PROJECT_DIR" rev-parse --short "$ref" 2>/dev/null || echo unknown
+  "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-parse --short "$ref" 2>/dev/null || echo unknown
 }
 
 # Returns mtime-age in seconds, or empty string if file missing.
@@ -421,7 +429,7 @@ PY
 AGENT_ORIGIN_PATTERN="${ROTATION_AGENT_ORIGIN_PATTERN:-${HARDEV_AGENT_ORIGIN_PATTERN:-^Agent-Origin:}}"
 
 autorun_main_session_revs() {
-  git -C "$PROJECT_DIR" rev-list --first-parent --invert-grep -E --grep="$AGENT_ORIGIN_PATTERN" "$1"
+  "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-list --first-parent --invert-grep -E --grep="$AGENT_ORIGIN_PATTERN" "$1"
 }
 
 # Commit count for the current session: `<last self prevHead>..HEAD`.
@@ -464,7 +472,7 @@ autorun_round_measures() {
   last_ts=$(printf '%s\n' "$row" | cut -f1)
   last_head=$(printf '%s\n' "$row" | cut -f2)
   python3 - "$EVENTS_LOG" "$last_ts" "$(date +%s)" "$PROJECT_DIR" "$last_head" "$AGENT_ORIGIN_PATTERN" <<'PY'
-import json, subprocess, sys
+import json, os, subprocess, sys
 log, round_ts, now, repo, prev, origin = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]
 events = []
 try:
@@ -511,7 +519,7 @@ for e in events:
         intervals.append((open_by_name.pop(a["name"]), e["ts"]))
 intervals += [(s, now) for s in open_by_name.values()]
 
-r = subprocess.run(["git", "-C", repo, "rev-list", "--first-parent", "--invert-grep", "-E", f"--grep={origin}",
+r = subprocess.run([os.environ.get("ROTATION_VCS_BIN") or "git", "-C", repo, "rev-list", "--first-parent", "--invert-grep", "-E", f"--grep={origin}",
                     "--format=%ct", f"{prev}..HEAD"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
 if r.returncode != 0:
     print(active + "\t")
