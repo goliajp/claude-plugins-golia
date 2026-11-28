@@ -56,7 +56,12 @@ fi
 branch=$(g rev-parse --abbrev-ref HEAD 2>/dev/null)
 base_head=$(g rev-parse --short HEAD)
 autorun_record_event lane.merge.start "tag=$TAG" "merge=raw:$(js branch "$branch" baseHead "$base_head" tagHead "$tag_head")"
-if g merge --no-ff -m "merge: $TAG into $branch" "$TAG"; then
+# alt refuses a merge on develop or the production branch unless overridden for that one command;
+# the merging lane's tree may well be on develop
+lane_merge_run() {
+  if [ "$ROTATION_VCS_KIND" = alt ]; then ALT_PROTECTED_OVERRIDE=1 g "$@"; else g "$@"; fi
+}
+if lane_merge_run merge --no-ff -m "merge: $TAG into $branch" "$TAG"; then
   commit=$(g rev-parse --short HEAD)
   autorun_record_event lane.merge.end "tag=$TAG" "merge=raw:$(js status ok commit "$commit" branch "$branch" baseHead "$base_head")"
   echo "LANE MERGED $TAG commit=$commit"

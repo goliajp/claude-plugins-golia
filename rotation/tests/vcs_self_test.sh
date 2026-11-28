@@ -54,6 +54,14 @@ expect_eq "ROTATION_ALT_BIN is the alt command" "$(ROTATION_ALT_BIN=/opt/x/alt s
 (. "$KBIN/vcs.sh"; rotation_vcs_select "$D/g" svn) 2>/dev/null
 expect_eq "an unknown backend is refused" "$?" 2
 
+# a daemon socket path past sun_path runs alt without the daemon
+nod() { (unset ALT_NO_DAEMON; . "$KBIN/vcs.sh"; rotation_vcs_select "$1" alt; printf '%s' "${ALT_NO_DAEMON:-unset}"); }
+DEEP="$D/$(printf 'd%.0s' $(seq 1 110))"; mkdir -p "$DEEP/.alt" "$D/shortalt/.alt" "$D/deepws"
+printf '%s\nws\n' "$DEEP" > "$D/deepws/.alt"
+expect_eq "alt: deep socket path sets ALT_NO_DAEMON" "$(nod "$DEEP")" 1
+expect_eq "alt: short socket path leaves the daemon on" "$(nod "$D/shortalt")" unset
+expect_eq "alt: workspace of a deep repo sets ALT_NO_DAEMON" "$(nod "$D/deepws")" 1
+
 # ── 2 git, and alt speaking git ─────────────────────────────────────────
 # an `alt` that is git underneath, logging its calls; a `git` first on PATH that logs every direct call
 mkdir -p "$TMP/pathbin"

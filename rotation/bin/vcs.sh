@@ -38,8 +38,29 @@ rotation_vcs_select() {
     *) echo "vcs.sh: ROTATION_VCS must be git or alt, got '$kind'" >&2; return 2 ;;
   esac
   ROTATION_VCS_KIND=$kind
-  if [ "$kind" = alt ]; then ROTATION_VCS_BIN="${ROTATION_ALT_BIN:-alt}"; else ROTATION_VCS_BIN=git; fi
+  if [ "$kind" = alt ]; then
+    ROTATION_VCS_BIN="${ROTATION_ALT_BIN:-alt}"
+    rotation_alt_socket_guard "$1"
+  else
+    ROTATION_VCS_BIN=git
+  fi
   export ROTATION_VCS_KIND ROTATION_VCS_BIN
+}
+
+# alt 0.1.0 starts a daemon on .alt/daemon.sock; a unix socket path longer
+# than sun_path (104 bytes on macOS, 108 on Linux) makes every command wait
+# 5 s for a daemon that never came up. Run such repos without the daemon.
+rotation_alt_socket_guard() {
+  local d="$1" altdir=""
+  while [ -n "$d" ]; do
+    if [ -d "$d/.alt" ]; then altdir="$d/.alt"; break; fi
+    if [ -f "$d/.alt" ]; then altdir="$(head -n 1 "$d/.alt")/.alt"; break; fi
+    [ "$d" = / ] && break
+    d=$(dirname "$d")
+  done
+  [ -n "$altdir" ] || return 0
+  local sock="$altdir/daemon.sock"
+  if [ "${#sock}" -gt 100 ]; then export ALT_NO_DAEMON=1; fi
 }
 
 # rotation_vcs_trees [args before the subcommand…]: the parallel trees in `git worktree list --porcelain` form,
