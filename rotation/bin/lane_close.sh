@@ -139,7 +139,8 @@ rc=$?
 [ "$rc" -eq 0 ] || { echo "lane_close: trigger.sh self exit $rc — no tag, no inbox row" >&2; exit 1; }
 
 head=$(g rev-parse --short HEAD)
-g tag "$tag" HEAD || { echo "lane_close: $ROTATION_VCS_KIND tag $tag failed" >&2; exit 1; }
+# tag the resolved commit: alt 0.1.0 resolves HEAD in a workspace to the main tree's head
+g tag "$tag" "$(g rev-parse HEAD)" || { echo "lane_close: $ROTATION_VCS_KIND tag $tag failed" >&2; exit 1; }
 echo "lane_close: 4 tag $tag → $head"
 # the round's path claims end with it
 bash "$SCRIPT_DIR/claim.sh" drop --rid "$rid" --reason lane-close | sed 's/^/lane_close: 4 /'
