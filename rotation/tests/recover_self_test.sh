@@ -501,7 +501,7 @@ expect_eq "refused manager events were not written" "$(wc -l < "$EV" | tr -d ' '
 RT="$TMP/reaper"; mkdir -p "$RT/kernel"
 ln -s /bin/bash "$RT/claude-sim"
 printf '#!/bin/bash\nsleep 300\n' > "$RT/kernel/watchdog.sh"
-cp "$BIN/kill_stray_shells.sh" "$BIN/remote_kill.py" "$RT/kernel/"
+cp "$BIN/kill_stray_shells.sh" "$BIN/remote_kill.py" "$BIN/vcs.sh" "$RT/kernel/"
 REV="$RT/events.jsonl"
 sleep 300 & outside=$!
 cat > "$RT/tree.sh" <<EOF

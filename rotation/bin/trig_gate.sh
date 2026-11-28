@@ -407,9 +407,9 @@ check_trig3() {
   # this session's range.
   local range shas tok hit=""
   range=$(session_range)
-  shas=$(git -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null)
+  shas=$("$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null)
   if [ -z "$shas" ]; then
-    emit TRIG-3 FAIL "git rev-list $range returned nothing — cannot verify 'closed:'"
+    emit TRIG-3 FAIL "$ROTATION_VCS_KIND rev-list $range returned nothing — cannot verify 'closed:'"
     failed+=(TRIG-3)
     return
   fi
@@ -646,12 +646,12 @@ check_trig6() {
     return
   fi
   range=$(session_range)
-  shas=$(git -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null)
+  shas=$("$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null)
   if [ -z "$shas" ]; then
-    emit TRIG-6 SKIP "git rev-list $range returned nothing"
+    emit TRIG-6 SKIP "$ROTATION_VCS_KIND rev-list $range returned nothing"
     return
   fi
-  head=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null)
+  head=$("$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null)
   local name file sha verdict carried
   for name in $names; do
     file="$STAMP_DIR/$name-latest.json"
@@ -666,7 +666,7 @@ check_trig6() {
       stale+=("$name(${sha:-no-sha})")
     elif [ -z "$verdict" ]; then
       red+=("$name(no-verdict)")
-    elif [ -n "$carried" ] && [ "${head#"$carried"}" != "$head" ] && git -C "$PROJECT_DIR" cat-file -e "$sha^{commit}" 2>/dev/null; then
+    elif [ -n "$carried" ] && [ "${head#"$carried"}" != "$head" ] && "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" cat-file -e "$sha^{commit}" 2>/dev/null; then
       # carried to this HEAD by the planner: the reading stands, the verdict must still be green
       if [ "$verdict" != "ok" ]; then
         red+=("$name($verdict)")
@@ -782,7 +782,7 @@ check_trig8() {
     return
   fi
   prev=$(printf '%s\n' "$row" | cut -f2)
-  head=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null)
+  head=$("$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null)
   rid=$(autorun_current_rotation_id)
   if [ -z "${ROTATION_CLOSE_RULES:-}" ] || [ ! -f "$ROTATION_CLOSE_RULES" ]; then
     emit TRIG-8 FAIL "no rules table (ROTATION_CLOSE_RULES) — which paths count as substrate is unknown"
@@ -876,7 +876,7 @@ session_commit_check() {  # session_commit_check preflight|batch [N]
   row=$(autorun_last_round_row)
   last_head=$(printf '%s\n' "$row" | cut -f2)
   if [ -n "$last_head" ]; then range="$last_head..HEAD"; else range=$(session_range); fi
-  git -C "$PROJECT_DIR" rev-list --first-parent --reverse --parents "$range" 2>/dev/null \
+  "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" rev-list --first-parent --reverse --parents "$range" 2>/dev/null \
     | python3 -c '
 import json, sys
 log, mode, nmax = sys.argv[1], sys.argv[2], int(sys.argv[3])

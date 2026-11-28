@@ -55,7 +55,7 @@ fi
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/lane_lib.sh"
 [ -n "$ROTATION_LANE" ] || { echo "lane_close: run it through a lane's shim (.claude/rotation-lanes/<lane>/lane_close.sh)" >&2; exit 2; }
-g() { git -C "$PROJECT_DIR" "$@"; }
+g() { "$ROTATION_VCS_BIN" -C "$PROJECT_DIR" "$@"; }
 
 branch=$(g rev-parse --abbrev-ref HEAD 2>/dev/null)
 if [ -n "${ROTATION_BASE_BRANCH:-}" ] && [ "$branch" != "$ROTATION_BASE_BRANCH" ]; then
@@ -118,11 +118,11 @@ echo "lane_close: 1 merge $base into $branch"
 if ! g merge --no-edit -m "merge: $base into $branch" "$base"; then
   conflicts=$(g diff --name-only --diff-filter=U)
   if [ -n "$conflicts" ]; then
-    echo "lane_close: merge conflict — resolve and commit (or git merge --abort), then run lane_close.sh again:"
+    echo "lane_close: merge conflict — resolve and commit (or $ROTATION_VCS_KIND merge --abort), then run lane_close.sh again:"
     printf '%s\n' "$conflicts" | sed 's/^/  /'
     exit 3
   fi
-  echo "lane_close: git merge $base failed" >&2
+  echo "lane_close: $ROTATION_VCS_KIND merge $base failed" >&2
   exit 1
 fi
 
@@ -139,7 +139,7 @@ rc=$?
 [ "$rc" -eq 0 ] || { echo "lane_close: trigger.sh self exit $rc — no tag, no inbox row" >&2; exit 1; }
 
 head=$(g rev-parse --short HEAD)
-g tag "$tag" HEAD || { echo "lane_close: git tag $tag failed" >&2; exit 1; }
+g tag "$tag" HEAD || { echo "lane_close: $ROTATION_VCS_KIND tag $tag failed" >&2; exit 1; }
 echo "lane_close: 4 tag $tag → $head"
 # the round's path claims end with it
 bash "$SCRIPT_DIR/claim.sh" drop --rid "$rid" --reason lane-close | sed 's/^/lane_close: 4 /'

@@ -69,6 +69,9 @@ sys.dont_write_bytecode = True  # the kernel directory is the installed plugin; 
 from remote_kill import kill_command  # noqa: E402
 
 REPO = os.environ['ROTATION_REPO']
+# git, or alt taking git's arguments (vcs.sh); the list of parallel trees is the one subcommand that differs
+VCS_BIN = os.environ.get('ROTATION_VCS_BIN') or 'git'
+TREES = 'workspace' if os.environ.get('ROTATION_VCS_KIND') == 'alt' else 'worktree'
 EVENTS = os.environ['ROTATION_EVENTS_LOG']
 ROTATIONS = os.environ['ROTATION_ROTATIONS_LOG']
 PROBE_CMD = os.environ.get('ROTATION_REMOTE_PROBE_CMD', '')
@@ -110,7 +113,7 @@ def read_jsonl(path):
 
 
 def git(*args, cwd=None):
-    r = subprocess.run(['git', '-C', cwd or REPO, *args], capture_output=True, text=True)
+    r = subprocess.run([VCS_BIN, '-C', cwd or REPO, *args], capture_output=True, text=True)
     return r.stdout.rstrip('\n') if r.returncode == 0 else None
 
 
@@ -166,7 +169,7 @@ def tip():
 
 def worktrees(base):
     out, cur = [], {}
-    for line in (git('worktree', 'list', '--porcelain') or '').split('\n') + ['']:
+    for line in (git(TREES, 'list', '--porcelain') or '').split('\n') + ['']:
         if not line:
             if cur:
                 out.append(cur)

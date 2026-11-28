@@ -49,7 +49,9 @@
 
 set -u
 
-state_dir="${ROTATION_STATE_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)/.claude/rotation-state}"
+. "$(dirname "$0")/vcs.sh"
+rotation_vcs_select "$(dirname "$0")"
+state_dir="${ROTATION_STATE_DIR:-$("$ROTATION_VCS_BIN" -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)/.claude/rotation-state}"
 events="${HARDEV_EVENTS_LOG:-${ROTATION_EVENTS_LOG:-$state_dir/events.jsonl}}"
 rid="${ROTATION_REAP_ROTATION_ID:-}"
 manager=0
